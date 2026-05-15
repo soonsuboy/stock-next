@@ -1,12 +1,13 @@
 ﻿"""
-DART OpenAPI direct calls - no opendartreader dependency.
+DART OpenAPI direct calls.
+corp_code is looked up from Turso DB (pre-seeded).
 """
 import os
-import io
-import zipfile
-import xml.etree.ElementTree as ET
 from typing import Dict, Optional, List
+from datetime import datetime
 import requests
+
+from _lib import db as turso_db
 
 DART_BASE = "https://opendart.fss.or.kr/api"
 
@@ -18,38 +19,15 @@ def _api_key() -> str:
     return key
 
 
-# ---------- corp_code lookup (cached in module) ----------
-_corp_index: Optional[Dict[str, str]] = None  # stock_code(6) -> corp_code(8)
-
-
-def _build_corp_index() -> Dict[str, str]:
-    """Download DART corp code list and build stock_code -> corp_code map."""
-    url = f"{DART_BASE}/corpCode.xml"
-    r = requests.get(url, params={"crtfc_key": _api_key()}, timeout=20)
-    r.raise_for_status()
-
-    idx: Dict[str, str] = {}
-    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-        with z.open("CORPCODE.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-            for item in root.findall(".//list"):
-                stock_code = (item.findtext("stock_code") or "").strip()
-                corp_code = (item.findtext("corp_code") or "").strip()
-                if stock_code and corp_code:
-                    idx[stock_code.zfill(6)] = corp_code.zfill(8)
-    return idx
-
-
 def get_corp_code(stock_code: str) -> Optional[str]:
-    """Lookup corp_code (8-digit) by stock_code (6-digit)."""
-    global _corp_index
-    if _corp_index is None:
-        _corp_index = _build_corp_index()
-    return _corp_index.get(str(stock_code).zfill(6))
+    """Lookup corp_code (8-digit) by stock_code (6-digit) from Turso DB."""
+    sc = str(stock_code).zfill(6)
+    row = turso_db.query_one(
+        "SELECT corp_code FROM corp_codes WHERE stock_code = ?", [sc]
+    )
+    return row["corp_code"] if row else None
 
 
-# ---------- Financial statements ----------
 REPORT_CODES = [
     ("11011", "사업보고서"),
     ("11014", "3분기보고서"),
@@ -80,12 +58,9 @@ def _to_number(s) -> Optional[float]:
 
 
 def _match_account(items: List[dict], patterns: List[str]) -> Optional[float]:
-    """Find first matching account by name; tolerant of slight variations."""
-    # exact match first
     for it in items:
         if it.get("account_nm") in patterns:
             return _to_number(it.get("thstrm_amount"))
-    # then partial
     for p in patterns:
         for it in items:
             if p in (it.get("account_nm") or ""):
@@ -94,12 +69,6 @@ def _match_account(items: List[dict], patterns: List[str]) -> Optional[float]:
 
 
 def fetch_financials(stock_code: str, year: Optional[int] = None) -> Dict:
-    """
-    Find most recent report and extract key accounts.
-    Returns: {equity, net_income, operating_income, total_liabilities,
-              bsns_year, report_code, fs_div, source}
-    """
-    from datetime import datetime
     if year is None:
         year = datetime.now().year
 
@@ -134,7 +103,7 @@ def fetch_financials(stock_code: str, year: Optional[int] = None) -> Dict:
                             "reprt_code": rcode,
                             "fs_div": fs_div,
                         },
-                        timeout=15,
+                        timeout=10,
                     )
                     data = r.json()
                 except Exception:
@@ -157,6 +126,6 @@ def fetch_financials(stock_code: str, year: Optional[int] = None) -> Dict:
 
                 if out["equity"] is not None and out["net_income"] is not None:
                     return out
-                break  # CFS hit but missing some -> don't try OFS for same report
+                break  # CFS hit but missing -> try different report
 
     return out

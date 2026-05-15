@@ -19,6 +19,11 @@ interface FinancialData {
   form?: string;
 }
 
+interface AnalyzeDebug {
+  timestamp: string;
+  logs: string[];
+}
+
 // ============================================================
 // 미국 주식: SEC XBRL + Stooq
 // ============================================================
@@ -100,6 +105,16 @@ interface AnalysisResult {
   source: Record<string, string | undefined>;
   bsns_year?: string;
   report_code?: string;
+  debug?: AnalyzeDebug;
+  error?: string;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function pushLog(logs: string[] | undefined, message: string) {
+  logs?.push(`${new Date().toISOString()} ${message}`);
 }
 
 function parseSource(value: unknown): Record<string, string | undefined> {
@@ -118,7 +133,7 @@ function parseSource(value: unknown): Record<string, string | undefined> {
   }
 }
 
-async function fetchSecTickerMap(): Promise<Map<string, number>> {
+async function fetchSecTickerMap(logs?: string[]): Promise<Map<string, number>> {
   if (secTickerCache) return secTickerCache;
 
   const response = await fetch("https://www.sec.gov/files/company_tickers.json", {
@@ -127,7 +142,8 @@ async function fetchSecTickerMap(): Promise<Map<string, number>> {
   });
 
   if (!response.ok) {
-    throw new Error("SEC ticker map fetch failed");
+    pushLog(logs, `SEC ticker map failed: HTTP ${response.status}`);
+    throw new Error(`SEC ticker map fetch failed: HTTP ${response.status}`);
   }
 
   const data = (await response.json()) as Record<string, SecTickerRow>;
@@ -143,8 +159,11 @@ async function fetchSecTickerMap(): Promise<Map<string, number>> {
   return out;
 }
 
-async function lookupCik(symbol: string): Promise<number | undefined> {
-  const map = await fetchSecTickerMap();
+async function lookupCik(
+  symbol: string,
+  logs?: string[]
+): Promise<number | undefined> {
+  const map = await fetchSecTickerMap(logs);
   return map.get(symbol.toUpperCase());
 }
 
@@ -187,7 +206,8 @@ async function fetchSecConcept(
   paddedCik: string,
   taxonomy: "us-gaap" | "dei",
   concepts: string[],
-  units: string[]
+  units: string[],
+  logs?: string[]
 ): Promise<SecFact | undefined> {
   for (const concept of concepts) {
     try {
@@ -198,12 +218,23 @@ async function fetchSecConcept(
           signal: AbortSignal.timeout(8000),
         }
       );
-      if (!response.ok) continue;
+      if (!response.ok) {
+        pushLog(
+          logs,
+          `SEC concept ${taxonomy}/${concept} failed: HTTP ${response.status}`
+        );
+        continue;
+      }
 
       const data = (await response.json()) as SecConcept;
       const fact = latestAnnualFactFromUnits(data.units, concept, units);
       if (fact) return fact;
-    } catch {
+      pushLog(logs, `SEC concept ${taxonomy}/${concept} has no annual fact`);
+    } catch (error) {
+      pushLog(
+        logs,
+        `SEC concept ${taxonomy}/${concept} error: ${errorMessage(error)}`
+      );
       continue;
     }
   }
@@ -228,7 +259,8 @@ function latestYahooRaw(
 }
 
 async function fetchYahooTimeSeriesFinancials(
-  symbol: string
+  symbol: string,
+  logs?: string[]
 ): Promise<FinancialData> {
   try {
     const period2 = Math.floor(Date.now() / 1000);
@@ -250,7 +282,10 @@ async function fetchYahooTimeSeriesFinancials(
       }
     );
 
-    if (!response.ok) return { source: "yahoo_timeseries_error" };
+    if (!response.ok) {
+      pushLog(logs, `Yahoo timeseries failed: HTTP ${response.status}`);
+      return { source: `yahoo_timeseries_http_${response.status}` };
+    }
 
     const data = (await response.json()) as {
       timeseries?: { result?: YahooTimeSeriesResult[] };
@@ -273,6 +308,11 @@ async function fetchYahooTimeSeriesFinancials(
       operatingIncome.asOfDate ||
       liabilities.asOfDate;
 
+    pushLog(
+      logs,
+      `Yahoo timeseries values: equity=${equity.value ?? "null"}, net_income=${netIncome.value ?? "null"}, operating_income=${operatingIncome.value ?? "null"}, liabilities=${liabilities.value ?? "null"}, shares=${annualBasicShares.value || annualDilutedShares.value || quarterlyShares.value || "null"}`
+    );
+
     return {
       equity: equity.value,
       net_income: netIncome.value,
@@ -286,19 +326,24 @@ async function fetchYahooTimeSeriesFinancials(
       form: "annual",
       source: "yahoo_timeseries",
     };
-  } catch {
+  } catch (error) {
+    pushLog(logs, `Yahoo timeseries error: ${errorMessage(error)}`);
     return { source: "yahoo_timeseries_error" };
   }
 }
 
-async function fetchUsFinancials(symbol: string): Promise<FinancialData> {
-  const yahoo = await fetchYahooTimeSeriesFinancials(symbol);
+async function fetchUsFinancials(
+  symbol: string,
+  logs?: string[]
+): Promise<FinancialData> {
+  const yahoo = await fetchYahooTimeSeriesFinancials(symbol, logs);
   if (yahoo.equity !== undefined && yahoo.net_income !== undefined) {
     return yahoo;
   }
+  pushLog(logs, `Yahoo timeseries incomplete; falling back to SEC`);
 
   try {
-    const cik = await lookupCik(symbol);
+    const cik = await lookupCik(symbol, logs);
     if (!cik) return { source: "sec_cik_not_found" };
 
     const paddedCik = String(cik).padStart(10, "0");
@@ -308,22 +353,22 @@ async function fetchUsFinancials(symbol: string): Promise<FinancialData> {
         fetchSecConcept(paddedCik, "us-gaap", [
           "StockholdersEquity",
           "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-        ], ["USD"]),
+        ], ["USD"], logs),
         fetchSecConcept(paddedCik, "us-gaap", [
           "NetIncomeLoss",
           "ProfitLoss",
           "NetIncomeLossAvailableToCommonStockholdersBasic",
-        ], ["USD"]),
+        ], ["USD"], logs),
         fetchSecConcept(paddedCik, "us-gaap", [
           "OperatingIncomeLoss",
-        ], ["USD"]),
+        ], ["USD"], logs),
         fetchSecConcept(paddedCik, "us-gaap", [
           "Liabilities",
           "LiabilitiesCurrent",
-        ], ["USD"]),
+        ], ["USD"], logs),
         fetchSecConcept(paddedCik, "dei", [
           "EntityCommonStockSharesOutstanding",
-        ], ["shares"]),
+        ], ["shares"], logs),
       ]);
 
     const anchor = equity ?? netIncome ?? operatingIncome ?? liabilities;
@@ -339,13 +384,15 @@ async function fetchUsFinancials(symbol: string): Promise<FinancialData> {
     };
 
     return out;
-  } catch {
+  } catch (error) {
+    pushLog(logs, `SEC fallback error: ${errorMessage(error)}`);
     return { source: "sec_error" };
   }
 }
 
 async function fetchUsQuote(
-  symbol: string
+  symbol: string,
+  logs?: string[]
 ): Promise<{ price?: number; market_cap?: number; currency?: string }> {
   try {
     const stooqSymbol = `${symbol.toLowerCase()}.us`;
@@ -357,11 +404,17 @@ async function fetchUsQuote(
       }
     );
 
-    if (!response.ok) return {};
+    if (!response.ok) {
+      pushLog(logs, `Stooq quote failed: HTTP ${response.status}`);
+      return {};
+    }
 
     const text = await response.text();
     const [headerLine, rowLine] = text.trim().split(/\r?\n/);
-    if (!headerLine || !rowLine || rowLine.includes("N/D")) return {};
+    if (!headerLine || !rowLine || rowLine.includes("N/D")) {
+      pushLog(logs, `Stooq quote returned empty/N/D for ${symbol}`);
+      return {};
+    }
 
     const headers = headerLine.split(",");
     const values = rowLine.split(",");
@@ -372,7 +425,8 @@ async function fetchUsQuote(
       price: isFinite(price) ? price : undefined,
       currency: "USD",
     };
-  } catch {
+  } catch (error) {
+    pushLog(logs, `Stooq quote error: ${errorMessage(error)}`);
     return {};
   }
 }
@@ -380,7 +434,10 @@ async function fetchUsQuote(
 // ============================================================
 // 한국 주식: Daum Finance (시세) + DART (재무제표)
 // ============================================================
-async function fetchKrQuote(code: string): Promise<{
+async function fetchKrQuote(
+  code: string,
+  logs?: string[]
+): Promise<{
   price?: number;
   market_cap?: number;
   name?: string;
@@ -397,7 +454,10 @@ async function fetchKrQuote(code: string): Promise<{
         signal: AbortSignal.timeout(10000),
       }
     );
-    if (!response.ok) return {};
+    if (!response.ok) {
+      pushLog(logs, `Daum quote failed: HTTP ${response.status}`);
+      return {};
+    }
     const data = (await response.json()) as { quotes?: KoreanQuote[] };
     const quotes = data.quotes ?? [];
 
@@ -405,7 +465,10 @@ async function fetchKrQuote(code: string): Promise<{
       const sym = (item.symbolCode ?? "").replace(/^A/, "");
       return sym === code && item.isStock && !item.isDelisted;
     });
-    if (!q) return {};
+    if (!q) {
+      pushLog(logs, `Daum quote has no matching stock for ${code}`);
+      return {};
+    }
 
     const price: number | undefined = q.tradePrice;
     const shares: number | undefined = q.listedShareCount;
@@ -415,7 +478,8 @@ async function fetchKrQuote(code: string): Promise<{
         : undefined;
 
     return { price, market_cap, name: q.name, market: q.market ?? "KRX" };
-  } catch {
+  } catch (error) {
+    pushLog(logs, `Daum quote error: ${errorMessage(error)}`);
     return {};
   }
 }
@@ -464,9 +528,15 @@ function matchAccount(
   return undefined;
 }
 
-async function fetchDartFinancials(stockCode: string): Promise<FinancialData> {
+async function fetchDartFinancials(
+  stockCode: string,
+  logs?: string[]
+): Promise<FinancialData> {
   const apiKey = process.env.DART_API_KEY?.trim();
-  if (!apiKey) return { source: "dart_no_api_key" };
+  if (!apiKey) {
+    pushLog(logs, "DART_API_KEY is not set");
+    return { source: "dart_no_api_key" };
+  }
 
   // corp_code 조회
   let corpCode: string | undefined;
@@ -476,10 +546,14 @@ async function fetchDartFinancials(stockCode: string): Promise<FinancialData> {
       args: [stockCode.padStart(6, "0")],
     });
     corpCode = row.rows?.[0]?.[0] as string | undefined;
-  } catch {
+  } catch (error) {
+    pushLog(logs, `DART corp_code DB lookup error: ${errorMessage(error)}`);
     return { source: "dart_db_error" };
   }
-  if (!corpCode) return { source: "corp_code_not_found" };
+  if (!corpCode) {
+    pushLog(logs, `DART corp_code not found for ${stockCode}`);
+    return { source: "corp_code_not_found" };
+  }
 
   const out: FinancialData = { source: "dart_not_found" };
   const year = new Date().getFullYear();
@@ -504,9 +578,18 @@ async function fetchDartFinancials(stockCode: string): Promise<FinancialData> {
             list?: DartAccount[];
           };
 
-          if (data.status !== "000") continue;
+          if (data.status !== "000") {
+            pushLog(
+              logs,
+              `DART ${tryYear}/${rcode}/${fsDiv} returned status ${data.status ?? "unknown"}`
+            );
+            continue;
+          }
           const items = data.list ?? [];
-          if (!items.length) continue;
+          if (!items.length) {
+            pushLog(logs, `DART ${tryYear}/${rcode}/${fsDiv} returned no rows`);
+            continue;
+          }
 
           for (const [key, patterns] of Object.entries(ACCOUNT_PATTERNS)) {
             const field = key as keyof Pick<
@@ -527,7 +610,11 @@ async function fetchDartFinancials(stockCode: string): Promise<FinancialData> {
             return out;
           }
           break; // 이 rcode에서 CFS hit했지만 미완성 → 다음 rcode 시도
-        } catch {
+        } catch (error) {
+          pushLog(
+            logs,
+            `DART ${tryYear}/${rcode}/${fsDiv} error: ${errorMessage(error)}`
+          );
           continue;
         }
       }
@@ -618,6 +705,7 @@ async function getTodayCachedAnalysis(
 // POST /api/analyze
 // ============================================================
 export async function POST(request: NextRequest) {
+  const logs: string[] = [];
   try {
     const { code, save_to_db, force_refresh } = (await request.json()) as {
       code?: string;
@@ -628,7 +716,11 @@ export async function POST(request: NextRequest) {
     const rawCode = code?.trim();
     if (!rawCode) {
       return NextResponse.json(
-        { error: "Code is required" },
+        {
+          ok: false,
+          error: "Code is required",
+          debug: { timestamp: new Date().toISOString(), logs },
+        },
         { status: 400 }
       );
     }
@@ -639,7 +731,14 @@ export async function POST(request: NextRequest) {
 
     if (save_to_db && !force_refresh) {
       const cached = await getTodayCachedAnalysis(normalizedCode, country);
-      if (cached) return NextResponse.json(cached);
+      if (cached) {
+        cached.debug = {
+          timestamp: new Date().toISOString(),
+          logs: [`${new Date().toISOString()} Returned today's cached DB row`],
+        };
+        return NextResponse.json(cached);
+      }
+      pushLog(logs, "No same-day DB cache row; fetching upstream data");
     }
 
     const result: AnalysisResult = {
@@ -664,14 +763,14 @@ export async function POST(request: NextRequest) {
 
     if (isKr) {
       // 한국 종목: Daum Finance(시세) + DART(재무제표)
-      const quote = await fetchKrQuote(normalizedCode);
+      const quote = await fetchKrQuote(normalizedCode, logs);
       result.price = quote.price ?? null;
       result.market_cap = quote.market_cap ?? null;
       result.name = quote.name ?? null;
       result.market = quote.market ?? null;
       result.source.market = "daum";
 
-      const fin = await fetchDartFinancials(normalizedCode);
+      const fin = await fetchDartFinancials(normalizedCode, logs);
       result.equity = fin.equity ?? null;
       result.net_income = fin.net_income ?? null;
       result.operating_income = fin.operating_income ?? null;
@@ -681,7 +780,7 @@ export async function POST(request: NextRequest) {
       if (fin.report_code) result.report_code = fin.report_code;
     } else {
       // 미국 종목: SEC XBRL(재무제표) + Stooq(업데이트 시점 시세)
-      const fin = await fetchUsFinancials(normalizedCode);
+      const fin = await fetchUsFinancials(normalizedCode, logs);
       result.equity = fin.equity ?? null;
       result.net_income = fin.net_income ?? null;
       result.operating_income = fin.operating_income ?? null;
@@ -690,7 +789,7 @@ export async function POST(request: NextRequest) {
       if (fin.fiscal_year) result.bsns_year = fin.fiscal_year;
       if (fin.form) result.report_code = fin.form;
 
-      const quote = await fetchUsQuote(normalizedCode);
+      const quote = await fetchUsQuote(normalizedCode, logs);
       result.price = quote.price ?? null;
       result.market_cap =
         quote.price !== undefined && fin.shares_outstanding !== undefined
@@ -709,6 +808,15 @@ export async function POST(request: NextRequest) {
 
     const dr = safeDiv(result.total_liabilities, result.equity);
     result.debt_ratio = dr !== null ? dr * 100 : null;
+    result.debug = { timestamp: new Date().toISOString(), logs };
+
+    if (result.roe === null && result.pbr === null && result.per === null) {
+      result.ok = false;
+      result.error =
+        "No usable financial metrics were collected. See debug logs for upstream details.";
+      pushLog(logs, "No PER/PBR/ROE could be calculated from collected values");
+      return NextResponse.json(result, { status: 422 });
+    }
 
     // DB 저장 (옵션)
     if (save_to_db && (result.roe !== null || result.pbr !== null)) {
@@ -753,16 +861,26 @@ export async function POST(request: NextRequest) {
             JSON.stringify(result.source),
           ],
         });
+        pushLog(logs, "Saved financials row to DB");
       } catch (dbError) {
         console.warn("DB save error:", dbError);
+        result.ok = false;
+        result.error = `DB save error: ${errorMessage(dbError)}`;
+        pushLog(logs, result.error);
+        return NextResponse.json(result, { status: 500 });
       }
     }
 
     return NextResponse.json(result);
   } catch (error) {
     console.error("Analyze error:", error);
+    pushLog(logs, `Unhandled analyze error: ${errorMessage(error)}`);
     return NextResponse.json(
-      { ok: false, error: "Analysis failed" },
+      {
+        ok: false,
+        error: errorMessage(error) || "Analysis failed",
+        debug: { timestamp: new Date().toISOString(), logs },
+      },
       { status: 500 }
     );
   }

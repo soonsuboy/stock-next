@@ -25,15 +25,33 @@ interface WatchlistStock {
 
 interface AnalysisData {
   code: string;
+  ok?: boolean;
+  error?: string;
+  country?: string;
+  currency?: string;
+  source?: Record<string, string | undefined>;
   price?: number;
   market_cap?: number;
   equity?: number;
   net_income?: number;
+  operating_income?: number;
+  total_liabilities?: number;
   per?: number;
   pbr?: number;
   roe?: number;
   debt_ratio?: number;
   collected_at?: string;
+  debug?: {
+    timestamp?: string;
+    logs?: string[];
+  };
+}
+
+interface UpdateLog {
+  status: "success" | "error";
+  message: string;
+  details: string;
+  timestamp: string;
 }
 
 const formatCurrency = (
@@ -62,6 +80,14 @@ export default function WatchlistPage() {
   const [error, setError] = useState("");
   const [analysisData, setAnalysisData] = useState<Record<string, AnalysisData>>({});
   const [updatingCodes, setUpdatingCodes] = useState<Set<string>>(new Set());
+  const [updateLogs, setUpdateLogs] = useState<Record<string, UpdateLog>>({});
+
+  const recordUpdateLog = (code: string, log: UpdateLog) => {
+    setUpdateLogs((prev) => ({
+      ...prev,
+      [code]: log,
+    }));
+  };
 
   const fetchWatchlist = async () => {
     setLoading(true);
@@ -94,9 +120,30 @@ export default function WatchlistPage() {
         body: JSON.stringify({ code: stock.code, save_to_db: true }),
       });
 
-      if (!response.ok) throw new Error("업데이트 실패");
+      const responseText = await response.text();
+      let data: AnalysisData | null = null;
+      try {
+        data = responseText ? (JSON.parse(responseText) as AnalysisData) : null;
+      } catch {
+        data = null;
+      }
 
-      const data = await response.json();
+      if (!response.ok || data?.ok === false || !data) {
+        const detailText = data
+          ? JSON.stringify(data, null, 2)
+          : responseText || "(empty response)";
+        const message =
+          data?.error ||
+          `업데이트 실패 (HTTP ${response.status} ${response.statusText})`;
+        recordUpdateLog(stock.code, {
+          status: "error",
+          message,
+          details: detailText,
+          timestamp: new Date().toISOString(),
+        });
+        throw new Error(message);
+      }
+
       setAnalysisData({
         ...analysisData,
         [stock.code]: data,
@@ -121,6 +168,12 @@ export default function WatchlistPage() {
             : item
         )
       );
+      recordUpdateLog(stock.code, {
+        status: "success",
+        message: `${stock.name} 업데이트 완료`,
+        details: JSON.stringify(data, null, 2),
+        timestamp: new Date().toISOString(),
+      });
 
       alert(`${stock.name} 재무제표 업데이트 완료!`);
     } catch (err) {
@@ -215,6 +268,7 @@ export default function WatchlistPage() {
           {stocks.map((stock) => {
             const data = analysisData[stock.code] ?? stock;
             const isUpdating = updatingCodes.has(stock.code);
+            const updateLog = updateLogs[stock.code];
 
             return (
               <div
@@ -305,6 +359,27 @@ export default function WatchlistPage() {
                 <p className="text-xs text-slate-500 dark:text-slate-500 mt-3">
                   추가: {new Date(stock.added_at).toLocaleDateString("ko-KR")}
                 </p>
+
+                {updateLog && (
+                  <details
+                    className={`mt-4 rounded border p-3 text-xs ${
+                      updateLog.status === "error"
+                        ? "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100"
+                        : "border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100"
+                    }`}
+                    open={updateLog.status === "error"}
+                  >
+                    <summary className="cursor-pointer font-semibold">
+                      최근 업데이트 로그 - {updateLog.message}
+                    </summary>
+                    <p className="mt-2 text-left opacity-80">
+                      {new Date(updateLog.timestamp).toLocaleString("ko-KR")}
+                    </p>
+                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-2 text-[11px] leading-5 text-slate-900 dark:bg-black/30 dark:text-slate-100">
+                      {updateLog.details}
+                    </pre>
+                  </details>
+                )}
               </div>
             );
           })}

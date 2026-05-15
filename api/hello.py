@@ -1,4 +1,4 @@
-from http.server import BaseHTTPRequestHandler
+﻿from http.server import BaseHTTPRequestHandler
 import json
 import os
 import sys
@@ -6,7 +6,6 @@ import sys
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # DART 키로 간단한 호출 테스트
         dart_status = "not_tested"
         try:
             import requests
@@ -26,7 +25,7 @@ class handler(BaseHTTPRequestHandler):
             "python_version": sys.version,
             "has_dart_key": bool(os.environ.get("DART_API_KEY")),
             "has_turso_url": bool(os.environ.get("TURSO_DATABASE_URL")),
-            "dart_api_status": dart_status,  # "000" 이면 정상
+            "dart_api_status": dart_status,
         }
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")

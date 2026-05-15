@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 
 interface AnalysisData {
   code: string;
@@ -26,136 +25,97 @@ const formatCurrency = (value: number | null | undefined, country: string) => {
   }).format(value);
 };
 
-type TernaryTrace = {
-  name: string;
-  a: number[];
-  b: number[];
-  c: number[];
-  text: string[];
-  hovertemplate: string;
-  mode: "markers";
-  type: "scatterternary";
-  marker: {
-    size: number;
-    color: string;
-    symbol: string;
-    line: { color: string; width: number };
-  };
-};
+function TriangleDiagram({ stock }: { stock: AnalysisData }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-bold text-slate-900 dark:text-white">
+            {stock.name}
+          </h4>
+          <p className="text-xs text-slate-500">
+            {stock.code} {stock.country === "KR" ? "KR" : "US"}
+          </p>
+        </div>
+        <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          {stock.country === "KR" ? "한국" : "미국"}
+        </span>
+      </div>
 
-// Plotly를 동적으로 로드 (SSR 문제 방지)
-const TernaryChart = dynamic(
-  () =>
-    import("plotly.js-dist-min").then((Plotly) => {
-      return function Chart({
-        data,
-      }: {
-        data: TernaryTrace[];
-      }) {
-        const chartRef = useRef<HTMLDivElement>(null);
+      <svg
+        viewBox="0 0 720 620"
+        className="h-auto w-full"
+        role="img"
+        aria-label={`${stock.name} 시가총액, 자본총계, 당기순이익, PBR, ROE, PER 삼각형 다이어그램`}
+      >
+        <polygon
+          points="360,98 132,520 588,520"
+          fill="#eef4f9"
+          stroke="#2d3f52"
+          strokeWidth="4"
+          strokeLinejoin="round"
+        />
 
-        useEffect(() => {
-          const chartNode = chartRef.current;
-          if (!chartNode || !data.length) return;
+        <foreignObject x="270" y="8" width="180" height="82">
+          <div className="flex h-full flex-col items-center justify-center rounded-lg border border-amber-700 bg-amber-50 px-2 text-center text-slate-900">
+            <div className="text-sm font-semibold leading-tight">시가총액</div>
+            <div className="text-base font-bold leading-tight">
+              {formatCurrency(stock.market_cap, stock.country)}
+            </div>
+          </div>
+        </foreignObject>
 
-          const layout = {
-            ternary: {
-              sum: 100,
-              aaxis: {
-                title: "시가총액",
-                min: 0,
-                linewidth: 2,
-                tickfont: { size: 12 },
-              },
-              baxis: {
-                title: "자본총계",
-                min: 0,
-                linewidth: 2,
-                tickfont: { size: 12 },
-              },
-              caxis: {
-                title: "당기순이익",
-                min: 0,
-                linewidth: 2,
-                tickfont: { size: 12 },
-              },
-            },
-            annotations: [
-              {
-                text: "<b>시가총액</b>",
-                x: 0.5,
-                y: 1.08,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 15 },
-              },
-              {
-                text: "<b>자본총계</b>",
-                x: 0.04,
-                y: -0.04,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 15 },
-              },
-              {
-                text: "<b>당기순이익</b>",
-                x: 0.96,
-                y: -0.04,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 15 },
-              },
-              {
-                text: "PBR",
-                x: 0.18,
-                y: 0.5,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 13, color: "#16a34a" },
-              },
-              {
-                text: "ROE",
-                x: 0.5,
-                y: 0.02,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 13, color: "#9333ea" },
-              },
-              {
-                text: "PER",
-                x: 0.82,
-                y: 0.5,
-                xref: "paper",
-                yref: "paper",
-                showarrow: false,
-                font: { size: 13, color: "#2563eb" },
-              },
-            ],
-            title: "시가총액-자본총계-당기순이익 삼각형 분석",
-            showlegend: true,
-            height: 600,
-            margin: { l: 24, r: 24, t: 80, b: 48 },
-          };
+        <foreignObject x="16" y="516" width="144" height="82">
+          <div className="flex h-full flex-col items-center justify-center rounded-lg border border-green-700 bg-green-50 px-2 text-center text-slate-900">
+            <div className="text-sm font-semibold leading-tight">자본총계</div>
+            <div className="text-base font-bold leading-tight">
+              {formatCurrency(stock.equity, stock.country)}
+            </div>
+          </div>
+        </foreignObject>
 
-          Plotly.newPlot(chartNode, data, layout, {
-            responsive: true,
-          });
+        <foreignObject x="560" y="516" width="144" height="82">
+          <div className="flex h-full flex-col items-center justify-center rounded-lg border border-red-700 bg-red-50 px-2 text-center text-slate-900">
+            <div className="text-sm font-semibold leading-tight">당기순이익</div>
+            <div className="text-base font-bold leading-tight">
+              {formatCurrency(stock.net_income, stock.country)}
+            </div>
+          </div>
+        </foreignObject>
 
-          return () => {
-            Plotly.purge(chartNode);
-          };
-        }, [data]);
+        <text
+          x="168"
+          y="330"
+          textAnchor="middle"
+          className="fill-blue-700 text-base font-semibold"
+        >
+          <tspan x="168" dy="0">PBR</tspan>
+          <tspan x="168" dy="22">{stock.pbr?.toFixed(2)}</tspan>
+        </text>
 
-        return <div ref={chartRef} style={{ width: "100%", height: "600px" }} />;
-      };
-    }),
-  { ssr: false }
-);
+        <text
+          x="360"
+          y="568"
+          textAnchor="middle"
+          className="fill-orange-700 text-base font-semibold"
+        >
+          <tspan x="360" dy="0">ROE</tspan>
+          <tspan x="360" dy="22">{stock.roe?.toFixed(2)}%</tspan>
+        </text>
+
+        <text
+          x="552"
+          y="330"
+          textAnchor="middle"
+          className="fill-purple-700 text-base font-semibold"
+        >
+          <tspan x="552" dy="0">PER</tspan>
+          <tspan x="552" dy="22">{stock.per?.toFixed(2)}</tspan>
+        </text>
+      </svg>
+    </div>
+  );
+}
 
 export default function AnalysisPage() {
   const [stocks, setStocks] = useState<AnalysisData[]>([]);
@@ -212,41 +172,6 @@ export default function AnalysisPage() {
       s.equity &&
       s.net_income
   );
-
-  // Plotly 데이터 변환
-  const chartData: TernaryTrace[] = validStocks.map((s) => {
-    const marketCap = Math.max(s.market_cap || 0, 0);
-    const equity = Math.max(s.equity || 0, 0);
-    const netIncome = Math.max(s.net_income || 0, 0);
-    const total = marketCap + equity + netIncome;
-
-    return {
-      name: `${s.code} (${s.name})`,
-      a: total ? [(marketCap / total) * 100] : [0],
-      b: total ? [(equity / total) * 100] : [0],
-      c: total ? [(netIncome / total) * 100] : [0],
-      text: [
-        [
-          `${s.code} ${s.name}`,
-          `시가총액: ${formatCurrency(s.market_cap, s.country)}`,
-          `자본총계: ${formatCurrency(s.equity, s.country)}`,
-          `당기순이익: ${formatCurrency(s.net_income, s.country)}`,
-          `PBR: ${s.pbr?.toFixed(2)}`,
-          `ROE: ${s.roe?.toFixed(2)}%`,
-          `PER: ${s.per?.toFixed(2)}`,
-        ].join("<br />"),
-      ],
-      hovertemplate: "%{text}<extra></extra>",
-      mode: "markers" as const,
-      type: "scatterternary" as const,
-      marker: {
-        size: 12,
-        color: s.country === "KR" ? "rgb(255, 107, 107)" : "rgb(0, 100, 200)",
-        symbol: s.country === "KR" ? "circle" : "diamond",
-        line: { color: "white", width: 2 },
-      },
-    };
-  });
 
   if (loading) {
     return (
@@ -349,18 +274,16 @@ export default function AnalysisPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {/* Ternary (Triangle) Chart */}
+              {/* Triangle Diagrams */}
               <div className="p-6 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
-                  📈 삼각형 분석 (시가총액-자본총계-당기순이익)
+                  📈 삼각형 다이어그램
                 </h3>
-                {chartData.length > 0 ? (
-                  <TernaryChart data={chartData} />
-                ) : (
-                  <div className="h-80 flex items-center justify-center text-slate-500">
-                    선택된 종목의 데이터가 없습니다.
-                  </div>
-                )}
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                  {validStocks.map((stock) => (
+                    <TriangleDiagram key={stock.code} stock={stock} />
+                  ))}
+                </div>
               </div>
 
               {/* Metrics Summary */}
@@ -488,8 +411,8 @@ export default function AnalysisPage() {
                     오른쪽 변은 PER입니다.
                   </li>
                   <li>
-                    • <strong>점 위치:</strong> 세 원천 금액의 상대 비중을
-                    합계 100으로 정규화해 표시합니다.
+                    • <strong>수치:</strong> 각 꼭지점에는 원천 금액을, 각 변에는
+                    해당 투자지표 값을 표시합니다.
                   </li>
                   <li className="mt-2">
                     🇰🇷 <strong>빨간색 원:</strong> 한국 종목

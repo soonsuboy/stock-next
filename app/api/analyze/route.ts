@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 interface FinancialData {
@@ -20,7 +23,9 @@ interface FinancialData {
 // 미국 주식: SEC XBRL + Stooq
 // ============================================================
 const SEC_HEADERS = {
-  "User-Agent": "stock-analyzer/0.1 contact@example.com",
+  "User-Agent":
+    process.env.SEC_USER_AGENT ||
+    "soonsuboy-stock-next/1.0 (soonsuboy users noreply github com)",
   "Accept-Encoding": "gzip, deflate",
 };
 
@@ -44,7 +49,21 @@ interface SecConcept {
   units?: Record<string, SecFact[]>;
 }
 
-type SecFacts = Record<string, Record<string, SecConcept> | undefined>;
+interface YahooReportedValue {
+  raw?: number;
+}
+
+interface YahooTimeSeriesPoint {
+  asOfDate?: string;
+  reportedValue?: YahooReportedValue;
+}
+
+interface YahooTimeSeriesResult {
+  meta?: {
+    type?: string[];
+  };
+  [key: string]: unknown;
+}
 
 interface DartAccount {
   account_nm?: string;
@@ -83,6 +102,22 @@ interface AnalysisResult {
   report_code?: string;
 }
 
+function parseSource(value: unknown): Record<string, string | undefined> {
+  if (typeof value !== "string") return {};
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, val]) => [
+        key,
+        val === undefined ? undefined : String(val),
+      ])
+    );
+  } catch {
+    return {};
+  }
+}
+
 async function fetchSecTickerMap(): Promise<Map<string, number>> {
   if (secTickerCache) return secTickerCache;
 
@@ -113,33 +148,29 @@ async function lookupCik(symbol: string): Promise<number | undefined> {
   return map.get(symbol.toUpperCase());
 }
 
-function latestAnnualFact(
-  facts: SecFacts | undefined,
-  taxonomy: "us-gaap" | "dei",
-  concepts: string[],
+function latestAnnualFactFromUnits(
+  unitBlock: Record<string, SecFact[]> | undefined,
+  concept: string,
   units: string[]
 ): SecFact | undefined {
   const candidates: SecFact[] = [];
 
-  for (const concept of concepts) {
-    const unitBlock = facts?.[taxonomy]?.[concept]?.units;
-    if (!unitBlock) continue;
+  if (!unitBlock) return undefined;
 
-    for (const unit of units) {
-      const rows: SecFact[] = unitBlock[unit] ?? [];
-      for (const row of rows) {
-        const form = String(row.form ?? "");
-        const isAnnual =
-          row.fp === "FY" ||
-          form === "10-K" ||
-          form === "10-K/A" ||
-          concept === "EntityCommonStockSharesOutstanding";
+  for (const unit of units) {
+    const rows = unitBlock[unit] ?? [];
+    for (const row of rows) {
+      const form = String(row.form ?? "");
+      const isAnnual =
+        row.fp === "FY" ||
+        form === "10-K" ||
+        form === "10-K/A" ||
+        concept === "EntityCommonStockSharesOutstanding";
 
-        if (row.val === undefined || !isAnnual) continue;
-        if (form && !["10-K", "10-K/A", "8-K"].includes(form)) continue;
+      if (row.val === undefined || !isAnnual) continue;
+      if (form && !["10-K", "10-K/A", "8-K"].includes(form)) continue;
 
-        candidates.push(row);
-      }
+      candidates.push(row);
     }
   }
 
@@ -152,44 +183,148 @@ function latestAnnualFact(
   return candidates[0];
 }
 
+async function fetchSecConcept(
+  paddedCik: string,
+  taxonomy: "us-gaap" | "dei",
+  concepts: string[],
+  units: string[]
+): Promise<SecFact | undefined> {
+  for (const concept of concepts) {
+    try {
+      const response = await fetch(
+        `https://data.sec.gov/api/xbrl/companyconcept/CIK${paddedCik}/${taxonomy}/${concept}.json`,
+        {
+          headers: SEC_HEADERS,
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as SecConcept;
+      const fact = latestAnnualFactFromUnits(data.units, concept, units);
+      if (fact) return fact;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+function latestYahooRaw(
+  rows: YahooTimeSeriesResult[],
+  key: string
+): { value?: number; asOfDate?: string } {
+  const block = rows.find((row) => row.meta?.type?.includes(key));
+  const points = block?.[key] as YahooTimeSeriesPoint[] | undefined;
+  const latest = points
+    ?.filter((point) => typeof point.reportedValue?.raw === "number")
+    .sort((a, b) => (b.asOfDate ?? "").localeCompare(a.asOfDate ?? ""))[0];
+
+  return {
+    value: latest?.reportedValue?.raw,
+    asOfDate: latest?.asOfDate,
+  };
+}
+
+async function fetchYahooTimeSeriesFinancials(
+  symbol: string
+): Promise<FinancialData> {
+  try {
+    const period2 = Math.floor(Date.now() / 1000);
+    const types = [
+      "annualNetIncome",
+      "annualStockholdersEquity",
+      "annualTotalLiabilitiesNetMinorityInterest",
+      "annualOperatingIncome",
+      "annualBasicAverageShares",
+      "annualDilutedAverageShares",
+      "quarterlyBasicAverageShares",
+    ].join(",");
+
+    const response = await fetch(
+      `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${types}&period1=0&period2=${period2}`,
+      {
+        headers: { "User-Agent": UA },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (!response.ok) return { source: "yahoo_timeseries_error" };
+
+    const data = (await response.json()) as {
+      timeseries?: { result?: YahooTimeSeriesResult[] };
+    };
+    const rows = data.timeseries?.result ?? [];
+    const equity = latestYahooRaw(rows, "annualStockholdersEquity");
+    const netIncome = latestYahooRaw(rows, "annualNetIncome");
+    const operatingIncome = latestYahooRaw(rows, "annualOperatingIncome");
+    const liabilities = latestYahooRaw(
+      rows,
+      "annualTotalLiabilitiesNetMinorityInterest"
+    );
+    const annualBasicShares = latestYahooRaw(rows, "annualBasicAverageShares");
+    const annualDilutedShares = latestYahooRaw(rows, "annualDilutedAverageShares");
+    const quarterlyShares = latestYahooRaw(rows, "quarterlyBasicAverageShares");
+
+    const anchorDate =
+      equity.asOfDate ||
+      netIncome.asOfDate ||
+      operatingIncome.asOfDate ||
+      liabilities.asOfDate;
+
+    return {
+      equity: equity.value,
+      net_income: netIncome.value,
+      operating_income: operatingIncome.value,
+      total_liabilities: liabilities.value,
+      shares_outstanding:
+        annualBasicShares.value ||
+        annualDilutedShares.value ||
+        quarterlyShares.value,
+      fiscal_year: anchorDate?.slice(0, 4),
+      form: "annual",
+      source: "yahoo_timeseries",
+    };
+  } catch {
+    return { source: "yahoo_timeseries_error" };
+  }
+}
+
 async function fetchUsFinancials(symbol: string): Promise<FinancialData> {
+  const yahoo = await fetchYahooTimeSeriesFinancials(symbol);
+  if (yahoo.equity !== undefined && yahoo.net_income !== undefined) {
+    return yahoo;
+  }
+
   try {
     const cik = await lookupCik(symbol);
     if (!cik) return { source: "sec_cik_not_found" };
 
     const paddedCik = String(cik).padStart(10, "0");
-    const response = await fetch(
-      `https://data.sec.gov/api/xbrl/companyfacts/CIK${paddedCik}.json`,
-      {
-        headers: SEC_HEADERS,
-        signal: AbortSignal.timeout(20000),
-      }
-    );
 
-    if (!response.ok) return { source: "sec_error" };
-
-    const data = (await response.json()) as { facts?: SecFacts };
-    const facts = data.facts;
-
-    const equity = latestAnnualFact(facts, "us-gaap", [
-      "StockholdersEquity",
-      "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-    ], ["USD"]);
-    const netIncome = latestAnnualFact(facts, "us-gaap", [
-      "NetIncomeLoss",
-      "ProfitLoss",
-      "NetIncomeLossAvailableToCommonStockholdersBasic",
-    ], ["USD"]);
-    const operatingIncome = latestAnnualFact(facts, "us-gaap", [
-      "OperatingIncomeLoss",
-    ], ["USD"]);
-    const liabilities = latestAnnualFact(facts, "us-gaap", [
-      "Liabilities",
-      "LiabilitiesCurrent",
-    ], ["USD"]);
-    const shares = latestAnnualFact(facts, "dei", [
-      "EntityCommonStockSharesOutstanding",
-    ], ["shares"]);
+    const [equity, netIncome, operatingIncome, liabilities, shares] =
+      await Promise.all([
+        fetchSecConcept(paddedCik, "us-gaap", [
+          "StockholdersEquity",
+          "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        ], ["USD"]),
+        fetchSecConcept(paddedCik, "us-gaap", [
+          "NetIncomeLoss",
+          "ProfitLoss",
+          "NetIncomeLossAvailableToCommonStockholdersBasic",
+        ], ["USD"]),
+        fetchSecConcept(paddedCik, "us-gaap", [
+          "OperatingIncomeLoss",
+        ], ["USD"]),
+        fetchSecConcept(paddedCik, "us-gaap", [
+          "Liabilities",
+          "LiabilitiesCurrent",
+        ], ["USD"]),
+        fetchSecConcept(paddedCik, "dei", [
+          "EntityCommonStockSharesOutstanding",
+        ], ["shares"]),
+      ]);
 
     const anchor = equity ?? netIncome ?? operatingIncome ?? liabilities;
     const out: FinancialData = {
@@ -200,7 +335,7 @@ async function fetchUsFinancials(symbol: string): Promise<FinancialData> {
       shares_outstanding: shares?.val,
       fiscal_year: anchor?.fy ? String(anchor.fy) : undefined,
       form: anchor?.form,
-      source: `sec/${paddedCik}`,
+      source: `sec_concepts/${paddedCik}`,
     };
 
     return out;
@@ -416,29 +551,100 @@ function safeDiv(
   return isFinite(r) ? r : null;
 }
 
+async function getTodayCachedAnalysis(
+  code: string,
+  country: "KR" | "US"
+): Promise<AnalysisResult | null> {
+  try {
+    const result = await db.execute({
+      sql: `SELECT
+              w.name,
+              w.market,
+              f.price,
+              f.market_cap,
+              f.equity,
+              f.net_income,
+              f.operating_income,
+              f.total_liabilities,
+              f.roe,
+              f.pbr,
+              f.per,
+              f.debt_ratio,
+              f.source
+            FROM financials f
+            LEFT JOIN watchlist w ON f.code = w.code
+            WHERE f.code = ?
+              AND f.country = ?
+              AND f.data_date = DATE('now')
+              AND (f.roe IS NOT NULL OR f.pbr IS NOT NULL)
+            ORDER BY f.collected_at DESC
+            LIMIT 1`,
+      args: [code, country],
+    });
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      ok: true,
+      code,
+      country,
+      currency: country === "KR" ? "KRW" : "USD",
+      name: typeof row.name === "string" ? row.name : null,
+      market: typeof row.market === "string" ? row.market : null,
+      price: typeof row.price === "number" ? row.price : null,
+      market_cap: typeof row.market_cap === "number" ? row.market_cap : null,
+      equity: typeof row.equity === "number" ? row.equity : null,
+      net_income: typeof row.net_income === "number" ? row.net_income : null,
+      operating_income:
+        typeof row.operating_income === "number" ? row.operating_income : null,
+      total_liabilities:
+        typeof row.total_liabilities === "number" ? row.total_liabilities : null,
+      per: typeof row.per === "number" ? row.per : null,
+      pbr: typeof row.pbr === "number" ? row.pbr : null,
+      roe: typeof row.roe === "number" ? row.roe : null,
+      debt_ratio: typeof row.debt_ratio === "number" ? row.debt_ratio : null,
+      source: {
+        ...parseSource(row.source),
+        cache: "db_today",
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================
 // POST /api/analyze
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
-    const { code, save_to_db } = (await request.json()) as {
+    const { code, save_to_db, force_refresh } = (await request.json()) as {
       code?: string;
       save_to_db?: boolean;
+      force_refresh?: boolean;
     };
 
-    if (!code) {
+    const rawCode = code?.trim();
+    if (!rawCode) {
       return NextResponse.json(
         { error: "Code is required" },
         { status: 400 }
       );
     }
 
-    const isKr = /^\d{6}$/.test(code);
+    const isKr = /^\d{6}$/.test(rawCode);
     const country: "KR" | "US" = isKr ? "KR" : "US";
+    const normalizedCode = isKr ? rawCode : rawCode.toUpperCase();
+
+    if (save_to_db && !force_refresh) {
+      const cached = await getTodayCachedAnalysis(normalizedCode, country);
+      if (cached) return NextResponse.json(cached);
+    }
 
     const result: AnalysisResult = {
       ok: true,
-      code,
+      code: normalizedCode,
       country,
       currency: isKr ? "KRW" : "USD",
       name: null,
@@ -458,14 +664,14 @@ export async function POST(request: NextRequest) {
 
     if (isKr) {
       // 한국 종목: Daum Finance(시세) + DART(재무제표)
-      const quote = await fetchKrQuote(code);
+      const quote = await fetchKrQuote(normalizedCode);
       result.price = quote.price ?? null;
       result.market_cap = quote.market_cap ?? null;
       result.name = quote.name ?? null;
       result.market = quote.market ?? null;
       result.source.market = "daum";
 
-      const fin = await fetchDartFinancials(code);
+      const fin = await fetchDartFinancials(normalizedCode);
       result.equity = fin.equity ?? null;
       result.net_income = fin.net_income ?? null;
       result.operating_income = fin.operating_income ?? null;
@@ -475,7 +681,7 @@ export async function POST(request: NextRequest) {
       if (fin.report_code) result.report_code = fin.report_code;
     } else {
       // 미국 종목: SEC XBRL(재무제표) + Stooq(업데이트 시점 시세)
-      const fin = await fetchUsFinancials(code);
+      const fin = await fetchUsFinancials(normalizedCode);
       result.equity = fin.equity ?? null;
       result.net_income = fin.net_income ?? null;
       result.operating_income = fin.operating_income ?? null;
@@ -484,7 +690,7 @@ export async function POST(request: NextRequest) {
       if (fin.fiscal_year) result.bsns_year = fin.fiscal_year;
       if (fin.form) result.report_code = fin.form;
 
-      const quote = await fetchUsQuote(code);
+      const quote = await fetchUsQuote(normalizedCode);
       result.price = quote.price ?? null;
       result.market_cap =
         quote.price !== undefined && fin.shares_outstanding !== undefined
@@ -532,7 +738,7 @@ export async function POST(request: NextRequest) {
                  source = excluded.source,
                  collected_at = CURRENT_TIMESTAMP`,
           args: [
-            code,
+            normalizedCode,
             country,
             validateNum(result.price),
             validateNum(result.market_cap),

@@ -130,6 +130,14 @@ export default function WatchlistPage() {
     }
   };
 
+  const handleUpdateAllFinancials = async () => {
+    if (!window.confirm("모든 종목의 재무제표를 업데이트하시겠습니까?")) return;
+
+    for (const stock of stocks) {
+      await handleUpdateFinancials(stock);
+    }
+  };
+
   const handleRemoveStock = async (id: number, name: string) => {
     if (!window.confirm(`${name}을(를) 제거하시겠습니까?`)) return;
 
@@ -169,11 +177,7 @@ export default function WatchlistPage() {
         {stocks.length > 0 && (
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                if (window.confirm("모든 종목의 재무제표를 업데이트하시겠습니까?")) {
-                  stocks.forEach((stock) => handleUpdateFinancials(stock));
-                }
-              }}
+              onClick={handleUpdateAllFinancials}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
             >
               🔄 일괄 업데이트

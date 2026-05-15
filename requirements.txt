@@ -1,0 +1,8 @@
+finance-datareader>=0.9.90
+opendartreader>=0.2.5
+yfinance>=0.2.40
+requests>=2.31
+pandas>=2.0
+lxml>=4.9
+beautifulsoup4>=4.12
+libsql-experimental

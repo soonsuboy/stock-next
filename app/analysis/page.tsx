@@ -31,6 +31,8 @@ type TernaryTrace = {
   a: number[];
   b: number[];
   c: number[];
+  text: string[];
+  hovertemplate: string;
   mode: "markers";
   type: "scatterternary";
   marker: {
@@ -60,28 +62,84 @@ const TernaryChart = dynamic(
             ternary: {
               sum: 100,
               aaxis: {
-                title: "ROE (%)",
-                min: 0.01,
+                title: "시가총액",
+                min: 0,
                 linewidth: 2,
                 tickfont: { size: 12 },
               },
               baxis: {
-                title: "PBR (배수)",
-                min: 0.01,
+                title: "자본총계",
+                min: 0,
                 linewidth: 2,
                 tickfont: { size: 12 },
               },
               caxis: {
-                title: "PER (배수)",
-                min: 0.01,
+                title: "당기순이익",
+                min: 0,
                 linewidth: 2,
                 tickfont: { size: 12 },
               },
             },
-            title: "ROE-PBR-PER 삼각형 분석",
+            annotations: [
+              {
+                text: "<b>시가총액</b>",
+                x: 0.5,
+                y: 1.08,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 15 },
+              },
+              {
+                text: "<b>자본총계</b>",
+                x: 0.04,
+                y: -0.04,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 15 },
+              },
+              {
+                text: "<b>당기순이익</b>",
+                x: 0.96,
+                y: -0.04,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 15 },
+              },
+              {
+                text: "PBR",
+                x: 0.18,
+                y: 0.5,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 13, color: "#16a34a" },
+              },
+              {
+                text: "ROE",
+                x: 0.5,
+                y: 0.02,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 13, color: "#9333ea" },
+              },
+              {
+                text: "PER",
+                x: 0.82,
+                y: 0.5,
+                xref: "paper",
+                yref: "paper",
+                showarrow: false,
+                font: { size: 13, color: "#2563eb" },
+              },
+            ],
+            title: "시가총액-자본총계-당기순이익 삼각형 분석",
             showlegend: true,
             height: 600,
-            margin: { l: 0, r: 0, t: 40, b: 0 },
+            margin: { l: 24, r: 24, t: 80, b: 48 },
           };
 
           Plotly.newPlot(chartNode, data, layout, {
@@ -140,24 +198,55 @@ export default function AnalysisPage() {
 
   // 데이터 검증 및 정규화
   const validStocks = selectedStocks.filter(
-    (s) => s.roe !== null && s.pbr !== null && s.per !== null && s.roe && s.pbr && s.per
+    (s) =>
+      s.roe !== null &&
+      s.pbr !== null &&
+      s.per !== null &&
+      s.market_cap !== null &&
+      s.equity !== null &&
+      s.net_income !== null &&
+      s.roe &&
+      s.pbr &&
+      s.per &&
+      s.market_cap &&
+      s.equity &&
+      s.net_income
   );
 
   // Plotly 데이터 변환
-  const chartData: TernaryTrace[] = validStocks.map((s) => ({
-    name: `${s.code} (${s.name})`,
-    a: [s.roe || 0],
-    b: [s.pbr || 0],
-    c: [s.per || 0],
-    mode: "markers" as const,
-    type: "scatterternary" as const,
-    marker: {
-      size: 12,
-      color: s.country === "KR" ? "rgb(255, 107, 107)" : "rgb(0, 100, 200)",
-      symbol: s.country === "KR" ? "circle" : "diamond",
-      line: { color: "white", width: 2 },
-    },
-  }));
+  const chartData: TernaryTrace[] = validStocks.map((s) => {
+    const marketCap = Math.max(s.market_cap || 0, 0);
+    const equity = Math.max(s.equity || 0, 0);
+    const netIncome = Math.max(s.net_income || 0, 0);
+    const total = marketCap + equity + netIncome;
+
+    return {
+      name: `${s.code} (${s.name})`,
+      a: total ? [(marketCap / total) * 100] : [0],
+      b: total ? [(equity / total) * 100] : [0],
+      c: total ? [(netIncome / total) * 100] : [0],
+      text: [
+        [
+          `${s.code} ${s.name}`,
+          `시가총액: ${formatCurrency(s.market_cap, s.country)}`,
+          `자본총계: ${formatCurrency(s.equity, s.country)}`,
+          `당기순이익: ${formatCurrency(s.net_income, s.country)}`,
+          `PBR: ${s.pbr?.toFixed(2)}`,
+          `ROE: ${s.roe?.toFixed(2)}%`,
+          `PER: ${s.per?.toFixed(2)}`,
+        ].join("<br />"),
+      ],
+      hovertemplate: "%{text}<extra></extra>",
+      mode: "markers" as const,
+      type: "scatterternary" as const,
+      marker: {
+        size: 12,
+        color: s.country === "KR" ? "rgb(255, 107, 107)" : "rgb(0, 100, 200)",
+        symbol: s.country === "KR" ? "circle" : "diamond",
+        line: { color: "white", width: 2 },
+      },
+    };
+  });
 
   if (loading) {
     return (
@@ -203,9 +292,15 @@ export default function AnalysisPage() {
                   stock.roe !== null &&
                   stock.pbr !== null &&
                   stock.per !== null &&
+                  stock.market_cap !== null &&
+                  stock.equity !== null &&
+                  stock.net_income !== null &&
                   stock.roe &&
                   stock.pbr &&
-                  stock.per;
+                  stock.per &&
+                  stock.market_cap &&
+                  stock.equity &&
+                  stock.net_income;
 
                 return (
                   <label
@@ -257,7 +352,7 @@ export default function AnalysisPage() {
               {/* Ternary (Triangle) Chart */}
               <div className="p-6 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
-                  📈 삼각형 분석 (ROE-PBR-PER)
+                  📈 삼각형 분석 (시가총액-자본총계-당기순이익)
                 </h3>
                 {chartData.length > 0 ? (
                   <TernaryChart data={chartData} />
@@ -385,16 +480,16 @@ export default function AnalysisPage() {
                 <p className="font-semibold mb-2">💡 지표 설명</p>
                 <ul className="text-xs space-y-1">
                   <li>
-                    • <strong>PER (주가수익비율):</strong> 낮을수록 좋음 (저평가
-                    기업)
+                    • <strong>꼭지점:</strong> 상단은 시가총액, 왼쪽은
+                    자본총계, 오른쪽은 당기순이익입니다.
                   </li>
                   <li>
-                    • <strong>PBR (주가순자산비율):</strong> 낮을수록 좋음
-                    (자산 대비 저평가)
+                    • <strong>변 라벨:</strong> 왼쪽 변은 PBR, 아랫변은 ROE,
+                    오른쪽 변은 PER입니다.
                   </li>
                   <li>
-                    • <strong>ROE (자기자본수익률):</strong> 높을수록 좋음
-                    (수익성 지표)
+                    • <strong>점 위치:</strong> 세 원천 금액의 상대 비중을
+                    합계 100으로 정규화해 표시합니다.
                   </li>
                   <li className="mt-2">
                     🇰🇷 <strong>빨간색 원:</strong> 한국 종목

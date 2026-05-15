@@ -4,9 +4,30 @@ import { db } from "@/lib/db";
 export async function GET() {
   try {
     const result = await db.execute(
-      `SELECT id, code, name, country, market, added_at 
-       FROM watchlist 
-       ORDER BY added_at DESC`
+      `SELECT
+         w.id,
+         w.code,
+         w.name,
+         w.country,
+         w.market,
+         w.added_at,
+         f.price,
+         f.market_cap,
+         f.equity,
+         f.net_income,
+         f.operating_income,
+         f.total_liabilities,
+         f.roe,
+         f.pbr,
+         f.per,
+         f.debt_ratio,
+         f.collected_at
+       FROM watchlist w
+       LEFT JOIN (
+         SELECT code, MAX(collected_at) as latest_date FROM financials GROUP BY code
+       ) latest ON w.code = latest.code
+       LEFT JOIN financials f ON w.code = f.code AND f.collected_at = latest.latest_date
+       ORDER BY w.added_at DESC`
     );
 
     const stocks = result.rows.map((row) => ({
@@ -16,6 +37,17 @@ export async function GET() {
       country: row.country,
       market: row.market,
       added_at: row.added_at,
+      price: row.price,
+      market_cap: row.market_cap,
+      equity: row.equity,
+      net_income: row.net_income,
+      operating_income: row.operating_income,
+      total_liabilities: row.total_liabilities,
+      roe: row.roe,
+      pbr: row.pbr,
+      per: row.per,
+      debt_ratio: row.debt_ratio,
+      collected_at: row.collected_at,
     }));
 
     return NextResponse.json({ stocks });

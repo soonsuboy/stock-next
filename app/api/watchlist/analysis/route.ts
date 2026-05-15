@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 export async function GET() {
@@ -9,6 +9,9 @@ export async function GET() {
         w.code, 
         w.name, 
         w.country,
+        f.market_cap,
+        f.equity,
+        f.net_income,
         f.roe, 
         f.pbr, 
         f.per
@@ -24,6 +27,9 @@ export async function GET() {
       code: row.code,
       name: row.name,
       country: row.country,
+      market_cap: row.market_cap,
+      equity: row.equity,
+      net_income: row.net_income,
       roe: row.roe,
       pbr: row.pbr,
       per: row.per,

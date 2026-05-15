@@ -23,7 +23,7 @@ async function searchKorean(keyword: string, limit: number = 20): Promise<Stock[
           "User-Agent": ua,
           Referer: "https://finance.daum.net/",
         },
-        timeout: 10000,
+        signal: AbortSignal.timeout(10000),
       }
     );
 
@@ -84,7 +84,7 @@ async function fetchUsListings(): Promise<Stock[]> {
     try {
       const response = await fetch(source.url, {
         headers: { "User-Agent": ua },
-        timeout: 15000,
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!response.ok) continue;

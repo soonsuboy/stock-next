@@ -15,7 +15,7 @@ export async function DELETE(
       );
     }
 
-    const result = await db.execute(
+    await db.execute(
       "DELETE FROM watchlist WHERE id = ?",
       [parseInt(id)]
     );

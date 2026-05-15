@@ -9,8 +9,37 @@ interface AnalysisData {
   roe?: number;
   pbr?: number;
   per?: number;
+  market_cap?: number;
+  equity?: number;
+  net_income?: number;
   country: string;
 }
+
+const formatCurrency = (value: number | null | undefined, country: string) => {
+  if (value === null || value === undefined) return "-";
+
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency: country === "KR" ? "KRW" : "USD",
+    notation: "compact",
+    maximumFractionDigits: country === "KR" ? 0 : 2,
+  }).format(value);
+};
+
+type TernaryTrace = {
+  name: string;
+  a: number[];
+  b: number[];
+  c: number[];
+  mode: "markers";
+  type: "scatterternary";
+  marker: {
+    size: number;
+    color: string;
+    symbol: string;
+    line: { color: string; width: number };
+  };
+};
 
 // Plotly를 동적으로 로드 (SSR 문제 방지)
 const TernaryChart = dynamic(
@@ -19,20 +48,13 @@ const TernaryChart = dynamic(
       return function Chart({
         data,
       }: {
-        data: Array<{
-          name: string;
-          a: number[];
-          b: number[];
-          c: number[];
-          mode: string;
-          type: string;
-          marker: any;
-        }>;
+        data: TernaryTrace[];
       }) {
         const chartRef = useRef<HTMLDivElement>(null);
 
         useEffect(() => {
-          if (!chartRef.current || !data.length) return;
+          const chartNode = chartRef.current;
+          if (!chartNode || !data.length) return;
 
           const layout = {
             ternary: {
@@ -62,14 +84,12 @@ const TernaryChart = dynamic(
             margin: { l: 0, r: 0, t: 40, b: 0 },
           };
 
-          Plotly.newPlot(chartRef.current, data, layout, {
+          Plotly.newPlot(chartNode, data, layout, {
             responsive: true,
           });
 
           return () => {
-            if (chartRef.current) {
-              Plotly.purge(chartRef.current);
-            }
+            Plotly.purge(chartNode);
           };
         }, [data]);
 
@@ -85,10 +105,6 @@ export default function AnalysisPage() {
   const [error, setError] = useState("");
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    fetchAnalysisData();
-  }, []);
-
   const fetchAnalysisData = async () => {
     setLoading(true);
     try {
@@ -103,6 +119,12 @@ export default function AnalysisPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchAnalysisData();
+    });
+  }, []);
 
   const toggleStockSelection = (code: string) => {
     const newSelected = new Set(selectedCodes);
@@ -122,13 +144,13 @@ export default function AnalysisPage() {
   );
 
   // Plotly 데이터 변환
-  const chartData = validStocks.map((s) => ({
+  const chartData: TernaryTrace[] = validStocks.map((s) => ({
     name: `${s.code} (${s.name})`,
     a: [s.roe || 0],
     b: [s.pbr || 0],
     c: [s.per || 0],
-    mode: "markers",
-    type: "scatterternary" as any,
+    mode: "markers" as const,
+    type: "scatterternary" as const,
     marker: {
       size: 12,
       color: s.country === "KR" ? "rgb(255, 107, 107)" : "rgb(0, 100, 200)",
@@ -316,6 +338,44 @@ export default function AnalysisPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                </div>
+                <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold mb-3">
+                    업데이트 시점 원천 금액
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-500 dark:text-slate-400">
+                          <th className="py-2 pr-3 font-semibold">종목</th>
+                          <th className="py-2 pr-3 font-semibold">시가총액</th>
+                          <th className="py-2 pr-3 font-semibold">자본총액</th>
+                          <th className="py-2 font-semibold">당기순이익</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {validStocks.map((s) => (
+                          <tr
+                            key={s.code}
+                            className="border-t border-slate-200 dark:border-slate-700"
+                          >
+                            <td className="py-2 pr-3 font-semibold text-slate-900 dark:text-white">
+                              {s.code}
+                            </td>
+                            <td className="py-2 pr-3 text-slate-700 dark:text-slate-300">
+                              {formatCurrency(s.market_cap, s.country)}
+                            </td>
+                            <td className="py-2 pr-3 text-slate-700 dark:text-slate-300">
+                              {formatCurrency(s.equity, s.country)}
+                            </td>
+                            <td className="py-2 text-slate-700 dark:text-slate-300">
+                              {formatCurrency(s.net_income, s.country)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

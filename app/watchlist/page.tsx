@@ -10,15 +10,51 @@ interface WatchlistStock {
   country: string;
   market: string;
   added_at: string;
+  price?: number | null;
+  market_cap?: number | null;
+  equity?: number | null;
+  net_income?: number | null;
+  operating_income?: number | null;
+  total_liabilities?: number | null;
+  roe?: number | null;
+  pbr?: number | null;
+  per?: number | null;
+  debt_ratio?: number | null;
+  collected_at?: string | null;
 }
 
 interface AnalysisData {
   code: string;
+  price?: number;
   market_cap?: number;
+  equity?: number;
+  net_income?: number;
   per?: number;
   pbr?: number;
   roe?: number;
+  debt_ratio?: number;
+  collected_at?: string;
 }
+
+const formatCurrency = (
+  value: number | null | undefined,
+  country: string,
+  compact = true
+) => {
+  if (value === null || value === undefined) return "-";
+
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency: country === "KR" ? "KRW" : "USD",
+    notation: compact ? "compact" : "standard",
+    maximumFractionDigits: country === "KR" ? 0 : 2,
+  }).format(value);
+};
+
+const formatMetric = (value: number | null | undefined, suffix = "") => {
+  if (value === null || value === undefined) return "-";
+  return `${value.toFixed(2)}${suffix}`;
+};
 
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([]);
@@ -26,10 +62,6 @@ export default function WatchlistPage() {
   const [error, setError] = useState("");
   const [analysisData, setAnalysisData] = useState<Record<string, AnalysisData>>({});
   const [updatingCodes, setUpdatingCodes] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    fetchWatchlist();
-  }, []);
 
   const fetchWatchlist = async () => {
     setLoading(true);
@@ -45,6 +77,12 @@ export default function WatchlistPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchWatchlist();
+    });
+  }, []);
 
   const handleUpdateFinancials = async (stock: WatchlistStock) => {
     setUpdatingCodes(new Set([...updatingCodes, stock.code]));
@@ -63,6 +101,26 @@ export default function WatchlistPage() {
         ...analysisData,
         [stock.code]: data,
       });
+      setStocks((prev) =>
+        prev.map((item) =>
+          item.code === stock.code
+            ? {
+                ...item,
+                price: data.price,
+                market_cap: data.market_cap,
+                equity: data.equity,
+                net_income: data.net_income,
+                operating_income: data.operating_income,
+                total_liabilities: data.total_liabilities,
+                roe: data.roe,
+                pbr: data.pbr,
+                per: data.per,
+                debt_ratio: data.debt_ratio,
+                collected_at: new Date().toISOString(),
+              }
+            : item
+        )
+      );
 
       alert(`${stock.name} 재무제표 업데이트 완료!`);
     } catch (err) {
@@ -151,7 +209,7 @@ export default function WatchlistPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {stocks.map((stock) => {
-            const data = analysisData[stock.code];
+            const data = analysisData[stock.code] ?? stock;
             const isUpdating = updatingCodes.has(stock.code);
 
             return (
@@ -175,26 +233,48 @@ export default function WatchlistPage() {
 
                 {/* Metrics Display */}
                 {data ? (
-                  <div className="grid grid-cols-3 gap-3 mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded">
-                    <div className="text-center">
-                      <p className="text-xs text-slate-600 dark:text-slate-400">PER</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">
-                        {data.per?.toFixed(2) || "-"}
-                      </p>
+                  <>
+                    <div className="grid grid-cols-3 gap-3 mb-3 p-3 bg-slate-50 dark:bg-slate-800 rounded">
+                      <div className="text-center">
+                        <p className="text-xs text-slate-600 dark:text-slate-400">PER</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white">
+                          {formatMetric(data.per)}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-slate-600 dark:text-slate-400">PBR</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white">
+                          {formatMetric(data.pbr)}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-slate-600 dark:text-slate-400">ROE</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white">
+                          {formatMetric(data.roe, "%")}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-600 dark:text-slate-400">PBR</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">
-                        {data.pbr?.toFixed(2) || "-"}
-                      </p>
+                    <div className="grid grid-cols-1 gap-2 mb-4 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600 dark:text-slate-400">업데이트 시점 시가총액</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {formatCurrency(data.market_cap, stock.country)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600 dark:text-slate-400">자본총액</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {formatCurrency(data.equity, stock.country)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600 dark:text-slate-400">당기순이익</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {formatCurrency(data.net_income, stock.country)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-600 dark:text-slate-400">ROE</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">
-                        {data.roe?.toFixed(2) || "-"}%
-                      </p>
-                    </div>
-                  </div>
+                  </>
                 ) : (
                   <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded text-sm text-slate-600 dark:text-slate-400 mb-4">
                     재무제표 데이터 없음

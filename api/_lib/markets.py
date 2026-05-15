@@ -1,82 +1,77 @@
 ﻿"""
-KRX (via Naver Finance search) + NASDAQ/NYSE listings + unified search.
+Korean stocks via Daum Finance + US stocks via NASDAQ Trader.
+Both work reliably from Vercel.
 """
-import io
-import csv
 import re
-import json
 from typing import List, Dict, Optional
 import requests
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
-# ---- Korean stocks via Naver Finance search ----
-def search_naver(keyword: str, limit: int = 20) -> List[Dict]:
+# ============================================================
+# Korean stocks via Daum Finance
+# ============================================================
+def search_korean(keyword: str, limit: int = 20) -> List[Dict]:
     """
-    Naver Finance autocomplete: returns Korean listings matching keyword.
-    Endpoint returns JSON with items: {code, name, nm, typeName, ...}
+    Daum Finance search returns Korean listings with price + market cap.
     """
-    url = "https://ac.finance.naver.com/ac"
-    params = {
-        "q": keyword,
-        "q_enc": "UTF-8",
-        "st": "111",
-        "frm": "stock",
-        "r_format": "json",
-        "r_enc": "UTF-8",
-        "r_unicode": "0",
-        "t_koreng": "1",
-        "r_lt": "111",
+    url = "https://finance.daum.net/api/search/quotes"
+    headers = {
+        "User-Agent": UA,
+        "Referer": "https://finance.daum.net/",
     }
-    headers = {"User-Agent": UA, "Referer": "https://finance.naver.com/"}
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=8)
+        r = requests.get(
+            url,
+            params={"q": keyword, "limit": limit},
+            headers=headers,
+            timeout=10,
+        )
         r.raise_for_status()
         data = r.json()
     except Exception:
         return []
 
     rows: List[Dict] = []
-    items = data.get("items") or []
-    # items is list of buckets; each bucket is list of [name_arr, code_arr, ..., extra]
-    for bucket in items:
-        if not isinstance(bucket, list):
+    for q in data.get("quotes", []):
+        if not q.get("isStock"):
             continue
-        for item in bucket:
-            try:
-                # Item shape:
-                #   [["Samsung Electronics"], ["005930"], ["KOSPI"], ...]
-                # Names/codes are nested lists.
-                name = _first(item[0]) if len(item) > 0 else ""
-                code = _first(item[1]) if len(item) > 1 else ""
-                market = _first(item[2]) if len(item) > 2 else "KRX"
-                if not code or not name:
-                    continue
-                if not re.fullmatch(r"\d{6}", code):
-                    # Some buckets contain non-ticker entries; skip.
-                    continue
-                rows.append({
-                    "code": code,
-                    "name": name,
-                    "market": market or "KRX",
-                    "country": "KR",
-                    "marcap": None,
-                })
-            except Exception:
-                continue
-            if len(rows) >= limit:
-                return rows
-    return rows
+        if q.get("isDelisted"):
+            continue
+        # symbolCode like "A005930" -> "005930"
+        sym = (q.get("symbolCode") or "").lstrip("A")
+        if not re.fullmatch(r"\d{6}", sym):
+            continue
+        name = q.get("name") or ""
+        if not name:
+            continue
+        rows.append({
+            "code": sym,
+            "name": name,
+            "market": q.get("market") or "KRX",
+            "country": "KR",
+            # Daum gives accTradePrice (trade value), but we also have listed share count + price
+            "marcap": _calc_marcap(q),
+            "price": q.get("tradePrice"),
+        })
+    return rows[:limit]
 
 
-def _first(x):
-    if isinstance(x, list):
-        return x[0] if x else ""
-    return x or ""
+def _calc_marcap(q: dict) -> Optional[float]:
+    price = q.get("tradePrice")
+    shares = q.get("listedShareCount")
+    if price is None or shares is None:
+        return None
+    try:
+        return float(price) * float(shares)
+    except (TypeError, ValueError):
+        return None
 
 
-# ---- US stocks (NASDAQ Trader official listing files) ----
+# ============================================================
+# US stocks via NASDAQ Trader official listings
+# ============================================================
 _us_cache: Optional[List[Dict]] = None
 
 
@@ -111,6 +106,9 @@ def fetch_us_listings() -> List[Dict]:
                     continue
                 if row.get("Test Issue", "N") == "Y":
                     continue
+                # Filter out warrants, rights, units (less common, cleaner results)
+                if any(t in symbol for t in ["$", ".", "="]):
+                    continue
                 exch = row.get("Exchange", "")
                 market = default_market
                 if exch == "N":
@@ -137,30 +135,45 @@ def search_us(keyword: str, limit: int = 20) -> List[Dict]:
     kw = (keyword or "").strip().lower()
     if not kw:
         return []
-    out = []
+    matches = []
     for row in fetch_us_listings():
-        if kw in row["code"].lower() or kw in row["name"].lower():
-            out.append(row)
-            if len(out) >= limit:
-                break
-    return out
+        code_lower = row["code"].lower()
+        name_lower = row["name"].lower()
+        if kw == code_lower:
+            score = 0  # exact ticker match -> highest priority
+        elif code_lower.startswith(kw):
+            score = 1
+        elif kw in code_lower:
+            score = 2
+        elif name_lower.startswith(kw):
+            score = 3
+        elif kw in name_lower:
+            score = 4
+        else:
+            continue
+        # Deprioritize obvious ETFs/derivatives by name
+        name_l = name_lower
+        if any(t in name_l for t in [" etf", "yieldmax", "leverage", "daily bull", "daily bear", "short ", " 2x", " 3x"]):
+            score += 10
+        matches.append((score, row))
+
+    matches.sort(key=lambda x: x[0])
+    return [m[1] for m in matches[:limit]]
 
 
-# ---- Unified search ----
+# ============================================================
+# Unified search
+# ============================================================
 def search(keyword: str, limit: int = 20) -> List[Dict]:
     keyword = (keyword or "").strip()
     if not keyword:
         return []
 
     results: List[Dict] = []
-
-    # Korean (Naver)
     try:
-        results.extend(search_naver(keyword, limit=limit))
+        results.extend(search_korean(keyword, limit=limit))
     except Exception:
         pass
-
-    # US (NASDAQ Trader)
     try:
         results.extend(search_us(keyword, limit=limit))
     except Exception:
@@ -168,10 +181,10 @@ def search(keyword: str, limit: int = 20) -> List[Dict]:
 
     # Dedupe by code, preserving order
     seen = set()
-    deduped = []
+    out = []
     for r in results:
         if r["code"] in seen:
             continue
         seen.add(r["code"])
-        deduped.append(r)
-    return deduped[:limit]
+        out.append(r)
+    return out[:limit]

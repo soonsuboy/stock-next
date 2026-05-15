@@ -1,0 +1,112 @@
+name: Stock Data Batch
+
+on:
+  schedule:
+    # 03:00 KST daily. Sunday also refreshes company masters and KR metrics.
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "companies, kr, us, or all"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - companies
+          - kr
+          - us
+          - all
+      shard_index:
+        description: "US shard index"
+        required: false
+        default: "0"
+      shard_count:
+        description: "US shard count"
+        required: false
+        default: "7"
+      limit:
+        description: "Optional per-run company limit"
+        required: false
+        default: ""
+      codes:
+        description: "Optional comma-separated codes for metrics runs"
+        required: false
+        default: ""
+      dry_run:
+        description: "Fetch and print without writing to Turso"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ensure DB schema
+        run: python batch/migrate_db.py
+
+      - name: Run scheduled batch
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          day="$(TZ=Asia/Seoul date +%u)"
+          if [ "$day" = "7" ]; then
+            python batch/update_companies.py --market ALL
+            python batch/update_metrics.py --market KR
+          fi
+
+          shard=$((day % 7))
+          python batch/update_metrics.py --market US --shard-index "$shard" --shard-count 7
+
+      - name: Run manual batch
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="${{ inputs.mode }}"
+          shard_index="${{ inputs.shard_index }}"
+          shard_count="${{ inputs.shard_count }}"
+          limit="${{ inputs.limit }}"
+          codes="${{ inputs.codes }}"
+          dry_run="${{ inputs.dry_run }}"
+
+          company_extra=()
+          metric_extra=()
+          if [ -n "$limit" ]; then
+            company_extra+=(--limit "$limit")
+            metric_extra+=(--limit "$limit")
+          fi
+          if [ -n "$codes" ]; then
+            metric_extra+=(--codes "$codes")
+          fi
+          if [ "$dry_run" = "true" ]; then
+            company_extra+=(--dry-run)
+            metric_extra+=(--dry-run)
+          fi
+
+          if [ "$mode" = "companies" ] || [ "$mode" = "all" ]; then
+            python batch/update_companies.py --market ALL "${company_extra[@]}"
+          fi
+          if [ "$mode" = "kr" ] || [ "$mode" = "all" ]; then
+            python batch/update_metrics.py --market KR "${metric_extra[@]}"
+          fi
+          if [ "$mode" = "us" ] || [ "$mode" = "all" ]; then
+            python batch/update_metrics.py --market US --shard-index "$shard_index" --shard-count "$shard_count" "${metric_extra[@]}"
+          fi

@@ -1,199 +1,82 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { getCurrentUser, unauthorized } from "@/lib/auth";
 
 interface Stock {
   code: string;
   name: string;
   market: string;
   country: string;
-  price?: number;
-  marcap?: number;
-}
-
-// 한국 종목 검색 (Daum Finance)
-async function searchKorean(keyword: string, limit: number = 20): Promise<Stock[]> {
-  const ua =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-  try {
-    const response = await fetch(
-      `https://finance.daum.net/api/search/quotes?q=${encodeURIComponent(
-        keyword
-      )}&limit=${limit}`,
-      {
-        headers: {
-          "User-Agent": ua,
-          Referer: "https://finance.daum.net/",
-        },
-        signal: AbortSignal.timeout(10000),
-      }
-    );
-
-    if (!response.ok) return [];
-    const data = await response.json();
-
-    const rows: Stock[] = [];
-    for (const q of data.quotes || []) {
-      if (!q.isStock || q.isDelisted) continue;
-
-      const sym = (q.symbolCode || "").replace(/^A/, "");
-      if (!/^\d{6}$/.test(sym)) continue;
-
-      const name = q.name || "";
-      if (!name) continue;
-
-      rows.push({
-        code: sym,
-        name,
-        market: q.market || "KRX",
-        country: "KR",
-        price: q.tradePrice,
-        marcap:
-          q.tradePrice && q.listedShareCount
-            ? q.tradePrice * q.listedShareCount
-            : undefined,
-      });
-    }
-
-    return rows.slice(0, limit);
-  } catch {
-    return [];
-  }
-}
-
-// 미국 종목 검색 (NASDAQ Trader)
-let usCache: Stock[] | null = null;
-
-async function fetchUsListings(): Promise<Stock[]> {
-  if (usCache) return usCache;
-
-  const rows: Stock[] = [];
-  const sources = [
-    {
-      url: "https://nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
-      market: "NASDAQ",
-    },
-    {
-      url: "https://nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
-      market: "NYSE",
-    },
-  ];
-
-  const ua =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-
-  for (const source of sources) {
-    try {
-      const response = await fetch(source.url, {
-        headers: { "User-Agent": ua },
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) continue;
-
-      const text = await response.text();
-      const lines = text.split("\n");
-      if (!lines.length) continue;
-
-      const header = lines[0].split("|");
-
-      for (const line of lines.slice(1)) {
-        if (!line || line.startsWith("File Creation")) continue;
-
-        const parts = line.split("|");
-        if (parts.length < 2) continue;
-
-        const row: Record<string, string> = {};
-        header.forEach((h, i) => {
-          row[h] = parts[i] || "";
-        });
-
-        const symbol = (row["Symbol"] || row["ACT Symbol"] || "").trim();
-        const name = (row["Security Name"] || "").trim();
-
-        if (!symbol || !name) continue;
-        if (row["Test Issue"] === "Y") continue;
-        if (/[\$\.=]/.test(symbol)) continue;
-
-        const exch = row["Exchange"] || "";
-        let market = source.market;
-        if (exch === "N") market = "NYSE";
-        else if (exch === "A") market = "AMEX";
-        else if (exch === "Q") market = "NASDAQ";
-
-        rows.push({
-          code: symbol,
-          name,
-          market,
-          country: "US",
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  usCache = rows;
-  return rows;
-}
-
-async function searchUs(keyword: string, limit: number = 20): Promise<Stock[]> {
-  const kw = (keyword || "").trim().toLowerCase();
-  if (!kw) return [];
-
-  const listings = await fetchUsListings();
-  const matches: [number, Stock][] = [];
-
-  for (const row of listings) {
-    const codeLower = row.code.toLowerCase();
-    const nameLower = row.name.toLowerCase();
-
-    let score: number;
-    if (kw === codeLower) {
-      score = 0;
-    } else if (codeLower.startsWith(kw)) {
-      score = 1;
-    } else if (codeLower.includes(kw)) {
-      score = 2;
-    } else if (nameLower.startsWith(kw)) {
-      score = 3;
-    } else if (nameLower.includes(kw)) {
-      score = 4;
-    } else {
-      continue;
-    }
-
-    const nameL = nameLower;
-    if (
-      [" etf", "yieldmax", "leverage", "daily bull", "daily bear", "short ", " 2x", " 3x"].some((t) => nameL.includes(t))
-    ) {
-      score += 10;
-    }
-
-    matches.push([score, row]);
-  }
-
-  matches.sort((a, b) => a[0] - b[0]);
-  return matches.slice(0, limit).map((m) => m[1]);
+  price?: number | null;
+  marcap?: number | null;
 }
 
 export async function GET(request: NextRequest) {
-  const q = request.nextUrl.searchParams.get("q") || "";
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
 
-  if (!q.trim()) {
+  const q = (request.nextUrl.searchParams.get("q") || "").trim();
+
+  if (!q) {
     return NextResponse.json(
       { error: "Search query is required" },
       { status: 400 }
     );
   }
 
-  // 한국 종목과 미국 종목 동시 검색
-  const [krResults, usResults] = await Promise.all([
-    searchKorean(q, 20),
-    searchUs(q, 20),
-  ]);
+  try {
+    const startsWith = `${q}%`;
+    const contains = `%${q}%`;
 
-  // 결과 합병 (한국 먼저)
-  const results = [...krResults, ...usResults];
+    const result = await db.execute({
+      sql: `WITH latest AS (
+              SELECT code, country, MAX(snapshot_date) AS snapshot_date
+              FROM metrics_history
+              GROUP BY code, country
+            )
+            SELECT
+              c.code,
+              c.name,
+              c.market,
+              c.country,
+              m.close_price AS price,
+              m.market_cap AS marcap
+            FROM companies c
+            LEFT JOIN latest l
+              ON c.code = l.code AND c.country = l.country
+            LEFT JOIN metrics_history m
+              ON m.code = l.code
+             AND m.country = l.country
+             AND m.snapshot_date = l.snapshot_date
+            WHERE c.code LIKE ? OR c.name LIKE ?
+            ORDER BY
+              CASE
+                WHEN UPPER(c.code) = UPPER(?) THEN 0
+                WHEN UPPER(c.code) LIKE UPPER(?) THEN 1
+                WHEN c.name LIKE ? THEN 2
+                ELSE 3
+              END,
+              CASE c.country WHEN 'KR' THEN 0 ELSE 1 END,
+              c.name
+            LIMIT 30`,
+      args: [contains, contains, q, startsWith, startsWith],
+    });
 
-  return NextResponse.json({ results });
+    const results: Stock[] = result.rows.map((row) => ({
+      code: String(row.code),
+      name: String(row.name),
+      market: typeof row.market === "string" ? row.market : "",
+      country: String(row.country),
+      price: typeof row.price === "number" ? row.price : null,
+      marcap: typeof row.marcap === "number" ? row.marcap : null,
+    }));
+
+    return NextResponse.json({ results });
+  } catch (error) {
+    console.error("DB search error:", error);
+    return NextResponse.json(
+      { error: "Failed to search companies" },
+      { status: 500 }
+    );
+  }
 }
-

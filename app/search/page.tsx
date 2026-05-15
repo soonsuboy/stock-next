@@ -44,7 +44,8 @@ export default function SearchPage() {
   };
 
   const handleAddStock = async (stock: Stock) => {
-    if (addedStocks.has(stock.code)) return;
+    const stockKey = `${stock.country}:${stock.code}`;
+    if (addedStocks.has(stockKey)) return;
 
     try {
       const response = await fetch("/api/watchlist", {
@@ -55,7 +56,7 @@ export default function SearchPage() {
 
       if (!response.ok) throw new Error("추가 실패");
 
-      setAddedStocks(new Set([...addedStocks, stock.code]));
+      setAddedStocks(new Set([...addedStocks, stockKey]));
       alert(`${stock.name}을(를) 관심 종목에 추가했습니다.`);
     } catch (err) {
       alert(err instanceof Error ? err.message : "추가 중 오류 발생");
@@ -67,6 +68,9 @@ export default function SearchPage() {
       <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-8">
         종목 검색
       </h1>
+      <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
+        검색 결과는 배치가 DB에 적재한 기업 목록에서만 조회합니다.
+      </p>
 
       {/* Search Form */}
       <form onSubmit={handleSearch} className="mb-8">
@@ -124,14 +128,14 @@ export default function SearchPage() {
               </div>
               <button
                 onClick={() => handleAddStock(stock)}
-                disabled={addedStocks.has(stock.code)}
+                disabled={addedStocks.has(`${stock.country}:${stock.code}`)}
                 className={`px-4 py-2 rounded-lg font-semibold transition ${
-                  addedStocks.has(stock.code)
+                  addedStocks.has(`${stock.country}:${stock.code}`)
                     ? "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 cursor-not-allowed"
                     : "bg-green-600 hover:bg-green-700 text-white"
                 }`}
               >
-                {addedStocks.has(stock.code) ? "✓ 추가됨" : "⭐ 추가"}
+                {addedStocks.has(`${stock.country}:${stock.code}`) ? "✓ 추가됨" : "⭐ 추가"}
               </button>
             </div>
           ))}

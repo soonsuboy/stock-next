@@ -1,34 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getCurrentUser, unauthorized } from "@/lib/auth";
+
+function normalizeCode(code: string, country: string) {
+  const trimmed = code.trim();
+  return country === "KR" ? trimmed.padStart(6, "0") : trimmed.toUpperCase();
+}
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
+
   try {
-    const result = await db.execute(
-      `SELECT
-         w.id,
-         w.code,
-         w.name,
-         w.country,
-         w.market,
-         w.added_at,
-         f.price,
-         f.market_cap,
-         f.equity,
-         f.net_income,
-         f.operating_income,
-         f.total_liabilities,
-         f.roe,
-         f.pbr,
-         f.per,
-         f.debt_ratio,
-         f.collected_at
-       FROM watchlist w
-       LEFT JOIN (
-         SELECT code, MAX(collected_at) as latest_date FROM financials GROUP BY code
-       ) latest ON w.code = latest.code
-       LEFT JOIN financials f ON w.code = f.code AND f.collected_at = latest.latest_date
-       ORDER BY w.added_at DESC`
-    );
+    const result = await db.execute({
+      sql: `WITH latest AS (
+              SELECT code, country, MAX(snapshot_date) AS snapshot_date
+              FROM metrics_history
+              GROUP BY code, country
+            )
+            SELECT
+              uw.id,
+              c.code,
+              c.name,
+              c.country,
+              c.market,
+              uw.added_at,
+              m.close_price AS price,
+              m.market_cap,
+              m.equity,
+              m.net_income,
+              m.operating_income,
+              m.total_liabilities,
+              m.roe,
+              m.pbr,
+              m.per,
+              m.debt_ratio,
+              m.created_at AS collected_at
+            FROM user_watchlist uw
+            JOIN companies c
+              ON uw.code = c.code AND uw.country = c.country
+            LEFT JOIN latest l
+              ON c.code = l.code AND c.country = l.country
+            LEFT JOIN metrics_history m
+              ON m.code = l.code
+             AND m.country = l.country
+             AND m.snapshot_date = l.snapshot_date
+            WHERE uw.user_id = ?
+            ORDER BY uw.added_at DESC`,
+      args: [user.id],
+    });
 
     const stocks = result.rows.map((row) => ({
       id: row.id,
@@ -61,21 +81,40 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const { code, name, country, market } = await request.json();
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
 
-    if (!code || !name || !country) {
+  try {
+    const { code, country } = (await request.json()) as {
+      code?: string;
+      country?: string;
+    };
+
+    if (!code || !country || !["KR", "US"].includes(country)) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    // 이미 존재하는 경우 무시
-    const existing = await db.execute(
-      "SELECT id FROM watchlist WHERE code = ?",
-      [code]
-    );
+    const normalizedCode = normalizeCode(code, country);
+    const company = await db.execute({
+      sql: "SELECT code, country FROM companies WHERE code = ? AND country = ?",
+      args: [normalizedCode, country],
+    });
+
+    if (company.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Company is not available in the local database" },
+        { status: 404 }
+      );
+    }
+
+    const existing = await db.execute({
+      sql: `SELECT id FROM user_watchlist
+            WHERE user_id = ? AND code = ? AND country = ?`,
+      args: [user.id, normalizedCode, country],
+    });
 
     if (existing.rows.length > 0) {
       return NextResponse.json(
@@ -84,11 +123,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await db.execute(
-      `INSERT INTO watchlist (code, name, country, market, added_at, updated_at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [code, name, country, market || ""]
-    );
+    await db.execute({
+      sql: `INSERT INTO user_watchlist
+            (user_id, code, country, added_at, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      args: [user.id, normalizedCode, country],
+    });
 
     return NextResponse.json(
       { message: "Stock added to watchlist" },

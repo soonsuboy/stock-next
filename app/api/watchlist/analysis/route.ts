@@ -1,27 +1,41 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getCurrentUser, unauthorized } from "@/lib/auth";
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
+
   try {
-    // watchlist의 모든 종목과 최신 financials 데이터 조인
-    const result = await db.execute(
-      `SELECT 
-        w.code, 
-        w.name, 
-        w.country,
-        f.market_cap,
-        f.equity,
-        f.net_income,
-        f.roe, 
-        f.pbr, 
-        f.per
-       FROM watchlist w
-       LEFT JOIN (
-         SELECT code, MAX(collected_at) as latest_date FROM financials GROUP BY code
-       ) latest ON w.code = latest.code
-       LEFT JOIN financials f ON w.code = f.code AND f.collected_at = latest.latest_date
-       ORDER BY w.added_at DESC`
-    );
+    const result = await db.execute({
+      sql: `WITH latest AS (
+              SELECT code, country, MAX(snapshot_date) AS snapshot_date
+              FROM metrics_history
+              GROUP BY code, country
+            )
+            SELECT
+              c.code,
+              c.name,
+              c.country,
+              m.market_cap,
+              m.equity,
+              m.net_income,
+              m.roe,
+              m.pbr,
+              m.per
+            FROM user_watchlist uw
+            JOIN companies c
+              ON uw.code = c.code AND uw.country = c.country
+            LEFT JOIN latest l
+              ON c.code = l.code AND c.country = l.country
+            LEFT JOIN metrics_history m
+              ON m.code = l.code
+             AND m.country = l.country
+             AND m.snapshot_date = l.snapshot_date
+            WHERE uw.user_id = ?
+            ORDER BY uw.added_at DESC`,
+      args: [user.id],
+    });
 
     const stocks = result.rows.map((row) => ({
       code: row.code,

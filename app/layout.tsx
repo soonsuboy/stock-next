@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
+import { auth, signOut } from "@/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,11 +19,18 @@ export const metadata: Metadata = {
   description: "한국·미국 상장사 투자지표 분석 플랫폼",
 };
 
-export default function RootLayout({
+async function signOutAction() {
+  "use server";
+  await signOut({ redirectTo: "/" });
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
   return (
     <html
       lang="ko"
@@ -35,7 +43,7 @@ export default function RootLayout({
             <Link href="/" className="text-xl font-bold text-slate-900 dark:text-white">
               📈 Stock Analysis
             </Link>
-            <div className="flex gap-6 text-sm font-medium">
+            <div className="flex items-center gap-6 text-sm font-medium">
               <Link href="/" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 홈
               </Link>
@@ -48,6 +56,20 @@ export default function RootLayout({
               <Link href="/analysis" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 분석
               </Link>
+              {session?.user?.id ? (
+                <form action={signOutAction}>
+                  <button
+                    type="submit"
+                    className="text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                  >
+                    로그아웃
+                  </button>
+                </form>
+              ) : (
+                <Link href="/login" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  로그인
+                </Link>
+              )}
             </div>
           </nav>
         </header>
@@ -58,7 +80,7 @@ export default function RootLayout({
         {/* Footer */}
         <footer className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 py-6 mt-12">
           <div className="max-w-6xl mx-auto px-6 text-center text-sm text-slate-600 dark:text-slate-400">
-            <p>© 2026 Stock Analysis. DART & Yahoo Finance data.</p>
+            <p>© 2026 Stock Analysis. Batch-collected DART & SEC data.</p>
           </div>
         </footer>
       </body>

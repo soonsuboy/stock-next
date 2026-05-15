@@ -36,8 +36,8 @@ export default function Home() {
           <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
             종목 검색
           </h3>
-          <p className="text-slate-600 dark:text-slate-400">
-            한국·미국 상장사를 키워드로 검색하고 관심 목록에 추가하세요.
+            <p className="text-slate-600 dark:text-slate-400">
+            DB에 적재된 한국·미국 상장사를 키워드로 검색하고 관심 목록에 추가하세요.
           </p>
         </div>
 
@@ -46,8 +46,8 @@ export default function Home() {
           <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
             자동 수집
           </h3>
-          <p className="text-slate-600 dark:text-slate-400">
-            DART, Yahoo Finance에서 최신 재무제표를 자동으로 수집 및 저장합니다.
+            <p className="text-slate-600 dark:text-slate-400">
+            GitHub Actions 배치가 재무제표와 지표를 주기적으로 수집 및 저장합니다.
           </p>
         </div>
 
@@ -73,7 +73,7 @@ export default function Home() {
               🇰🇷 한국 종목
             </h3>
             <ul className="text-slate-600 dark:text-slate-400 space-y-1">
-              <li>• 종목 정보: Daum Finance</li>
+              <li>• 종목 정보: DART corpCode / DB 배치</li>
               <li>• 재무제표: 금융감독원 DART</li>
             </ul>
           </div>
@@ -82,8 +82,8 @@ export default function Home() {
               🇺🇸 미국 종목
             </h3>
             <ul className="text-slate-600 dark:text-slate-400 space-y-1">
-              <li>• 종목 정보: NASDAQ Trader</li>
-              <li>• 재무제표: Yahoo Finance</li>
+              <li>• 종목 정보: NASDAQ Trader / SEC ticker map</li>
+              <li>• 재무제표: SEC XBRL companyfacts</li>
             </ul>
           </div>
         </div>

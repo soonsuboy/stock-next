@@ -414,12 +414,6 @@ export default function AnalysisPage() {
                     • <strong>수치:</strong> 각 꼭지점에는 원천 금액을, 각 변에는
                     해당 투자지표 값을 표시합니다.
                   </li>
-                  <li className="mt-2">
-                    🇰🇷 <strong>빨간색 원:</strong> 한국 종목
-                  </li>
-                  <li>
-                    🇺🇸 <strong>파란색 마름모:</strong> 미국 종목
-                  </li>
                 </ul>
               </div>
             </div>

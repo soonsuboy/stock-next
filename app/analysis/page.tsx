@@ -27,10 +27,10 @@ const formatCurrency = (value: number | null | undefined, country: string) => {
 
 function TriangleDiagram({ stock }: { stock: AnalysisData }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h4 className="font-bold text-slate-900 dark:text-white">
+          <h4 className="text-lg font-bold text-slate-900 dark:text-white">
             {stock.name}
           </h4>
           <p className="text-xs text-slate-500">
@@ -44,7 +44,7 @@ function TriangleDiagram({ stock }: { stock: AnalysisData }) {
 
       <svg
         viewBox="0 0 720 620"
-        className="h-auto w-full"
+        className="h-auto min-h-[760px] w-full"
         role="img"
         aria-label={`${stock.name} 시가총액, 자본총계, 당기순이익, PBR, ROE, PER 삼각형 다이어그램`}
       >
@@ -279,7 +279,7 @@ export default function AnalysisPage() {
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
                   📈 삼각형 다이어그램
                 </h3>
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <div className="grid grid-cols-1 gap-6">
                   {validStocks.map((stock) => (
                     <TriangleDiagram key={stock.code} stock={stock} />
                   ))}

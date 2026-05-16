@@ -17,6 +17,7 @@ DEFAULT_BATCH_SETTINGS = {
   "us_shard_count": "7",
   "scheduled_selection": "all",
   "watchlist_skip_recent_hours": "24",
+  "watchlist_price_enabled": "true",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
@@ -37,6 +38,11 @@ def table_sql(name: str) -> str:
 def column_names(name: str) -> set[str]:
   result = execute(f"PRAGMA table_info({name})")
   return {str(row["name"]) for row in result["rows"] if row.get("name")}
+
+
+def ensure_column(table: str, column: str, definition: str) -> None:
+  if column not in column_names(table):
+    execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def create_companies() -> None:
@@ -87,6 +93,7 @@ def create_companies() -> None:
 def create_metrics_history() -> None:
   sql = table_sql("metrics_history")
   if "PRIMARY KEY (snapshot_date, code, country)" in sql:
+    ensure_column("metrics_history", "shares_outstanding", "REAL")
     return
 
   execute(
@@ -98,6 +105,7 @@ def create_metrics_history() -> None:
          currency          TEXT,
          close_price       REAL,
          market_cap        REAL,
+         shares_outstanding REAL,
          equity            REAL,
          net_income        REAL,
          operating_income  REAL,
@@ -119,17 +127,19 @@ def create_metrics_history() -> None:
   if sql:
     columns = column_names("metrics_history")
     country_expr = "country" if "country" in columns else "'KR'"
+    shares_expr = "shares_outstanding" if "shares_outstanding" in columns else "NULL"
     execute(
       f"""INSERT OR IGNORE INTO metrics_history_next
          (snapshot_date, code, country, name, currency, close_price, market_cap,
-          equity, net_income, operating_income, total_liabilities, debt_ratio,
-          foreign_ratio, institution_ratio, per, pbr, roe, report_code,
-          bsns_year, source, created_at)
+          shares_outstanding, equity, net_income, operating_income,
+          total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
+          per, pbr, roe, report_code, bsns_year, source, created_at)
          SELECT
           snapshot_date, code, COALESCE({country_expr}, 'KR'), name, currency,
-          close_price, market_cap, equity, net_income, operating_income,
-          total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
-          per, pbr, roe, report_code, bsns_year, source, created_at
+          close_price, market_cap, {shares_expr}, equity, net_income,
+          operating_income, total_liabilities, debt_ratio, foreign_ratio,
+          institution_ratio, per, pbr, roe, report_code, bsns_year, source,
+          created_at
          FROM metrics_history"""
     )
     execute("DROP TABLE metrics_history")

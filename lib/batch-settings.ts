@@ -16,6 +16,7 @@ export interface BatchSettings {
   usShardCount: number;
   scheduledSelection: MetricSelection;
   watchlistSkipRecentHours: number;
+  watchlistPriceEnabled: boolean;
 }
 
 export interface BatchSchedulerMeta {
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   us_shard_count: "7",
   scheduled_selection: "all",
   watchlist_skip_recent_hours: "24",
+  watchlist_price_enabled: "true",
   last_scheduled_run_date_kst: "",
   last_scheduler_check_at: "",
   last_scheduler_check_reason: "",
@@ -92,6 +94,7 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
     us_shard_count: String(settings.usShardCount),
     scheduled_selection: settings.scheduledSelection,
     watchlist_skip_recent_hours: String(settings.watchlistSkipRecentHours),
+    watchlist_price_enabled: String(settings.watchlistPriceEnabled),
   };
 }
 
@@ -120,6 +123,7 @@ function parseSettings(values: Record<string, string>): BatchSettings {
       0,
       168
     ),
+    watchlistPriceEnabled: parseBoolean(values.watchlist_price_enabled, true),
   };
 }
 
@@ -209,6 +213,7 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     us_shard_count: String(source.usShardCount ?? "7"),
     scheduled_selection: String(source.scheduledSelection ?? "all"),
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
+    watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
   });
 }
 

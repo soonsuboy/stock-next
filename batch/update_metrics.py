@@ -5,9 +5,10 @@ import json
 import os
 import time
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from io import StringIO
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -18,6 +19,7 @@ UA = (
   or "soonsuboy-stock-next/1.0 soonsuboy@example.com"
 )
 DART_BASE = "https://opendart.fss.or.kr/api"
+KST = ZoneInfo("Asia/Seoul")
 REPORT_CODES = [
   ("11011", "사업보고서"),
   ("11014", "3분기보고서"),
@@ -57,6 +59,10 @@ SEC_TICKER_MAP: dict[str, str] | None = None
 
 def now_text() -> str:
   return datetime.now().isoformat(timespec="seconds")
+
+
+def today_text() -> str:
+  return datetime.now(KST).date().isoformat()
 
 
 def safe_div(a: float | None, b: float | None) -> float | None:
@@ -224,11 +230,12 @@ def fetch_kr_quote(code: str) -> dict[str, Any]:
     return {
       "price": price,
       "market_cap": price * shares if price is not None and shares is not None else None,
+      "shares": shares,
       "market": item.get("market") or "KRX",
       "name": item.get("name"),
     }
 
-  return {"price": None, "market_cap": None}
+  return {"price": None, "market_cap": None, "shares": None}
 
 
 def match_account(items: list[dict[str, Any]], patterns: list[str]) -> float | None:
@@ -496,6 +503,7 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
     quote = fetch_kr_quote(code)
     financials = fetch_dart_financials(company)
     price = quote.get("price")
+    shares = quote.get("shares")
     market_cap = quote.get("market_cap")
   else:
     quote = fetch_stooq_quote(code)
@@ -533,19 +541,22 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
     "market": "daum" if country == "KR" else "stooq",
     "financials": financials.get("source"),
   }
+  if country == "KR" and shares is not None:
+    source["shares"] = "daum"
   if country == "US":
     source["shares"] = share_source
   if country == "US" and ADR_SHARE_RATIO.get(code):
     source["adr_share_ratio"] = ADR_SHARE_RATIO[code]
 
   return (
-    date.today().isoformat(),
+    today_text(),
     code,
     country,
     name,
     currency,
     price,
     market_cap,
+    shares,
     equity,
     net_income,
     operating_income,
@@ -568,15 +579,16 @@ def flush(metric_rows: list[tuple[Any, ...]], item_rows: list[tuple[Any, ...]]) 
     execute_many(
       """INSERT INTO metrics_history
          (snapshot_date, code, country, name, currency, close_price, market_cap,
-          equity, net_income, operating_income, total_liabilities, debt_ratio,
-          foreign_ratio, institution_ratio, per, pbr, roe, report_code,
-          bsns_year, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          shares_outstanding, equity, net_income, operating_income,
+          total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
+          per, pbr, roe, report_code, bsns_year, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(snapshot_date, code, country) DO UPDATE SET
            name = excluded.name,
            currency = excluded.currency,
            close_price = excluded.close_price,
            market_cap = excluded.market_cap,
+           shares_outstanding = excluded.shares_outstanding,
            equity = excluded.equity,
            net_income = excluded.net_income,
            operating_income = excluded.operating_income,

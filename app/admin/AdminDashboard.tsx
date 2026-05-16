@@ -426,6 +426,17 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 <option value="existing">기존 적재 기업만</option>
               </select>
             </label>
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 p-4 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.watchlistPriceEnabled}
+                onChange={(event) =>
+                  updateSetting("watchlistPriceEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              관심종목 가격/시총 매일 갱신
+            </label>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               관심종목 재집계 스킵 기준(시간)
               <input

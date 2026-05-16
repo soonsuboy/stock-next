@@ -187,7 +187,7 @@ export default function WatchlistPage() {
             관심 종목
           </h1>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            재무제표와 시가총액은 주기 배치가 DB에 저장한 최신 값을 표시합니다.
+            재무제표는 주기 배치가 저장한 값을, 가격과 시가총액은 관심종목 일일 가격 배치가 갱신한 최신 값을 표시합니다.
           </p>
         </div>
         {stocks.length > 0 && (
@@ -305,6 +305,14 @@ export default function WatchlistPage() {
                       </div>
                     </div>
                     <div className="mb-4 grid grid-cols-1 gap-2 rounded border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600 dark:text-slate-400">
+                          최근 가격
+                        </span>
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {formatCurrency(stock.price, stock.country, false)}
+                        </span>
+                      </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-slate-600 dark:text-slate-400">
                           시가총액

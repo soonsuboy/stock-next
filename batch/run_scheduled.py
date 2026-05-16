@@ -19,6 +19,7 @@ DEFAULTS = {
   "us_limit": "1000",
   "us_shard_count": "7",
   "scheduled_selection": "all",
+  "watchlist_price_enabled": "true",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
@@ -175,6 +176,17 @@ def main() -> None:
     selection = settings.get("scheduled_selection", "all")
     if selection not in ["all", "missing", "existing"]:
       selection = "all"
+
+    if bool_setting(settings, "watchlist_price_enabled"):
+      run_command(
+        [
+          sys.executable,
+          "batch/update_watchlist_prices.py",
+          "--market",
+          "ALL",
+        ]
+      )
+      commands_run += 1
 
     if bool_setting(settings, "company_master_enabled") and weekday == company_day:
       run_command([sys.executable, "batch/update_companies.py", "--market", "ALL"])

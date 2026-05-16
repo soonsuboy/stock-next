@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "companies, kr, us, or all"
+        description: "companies, kr, us, watchlist_prices, or all"
         required: true
         default: "all"
         type: choice
@@ -15,6 +15,7 @@ on:
           - companies
           - kr
           - us
+          - watchlist_prices
           - all
       shard_index:
         description: "US shard index"
@@ -89,9 +90,11 @@ jobs:
 
           company_extra=()
           metric_extra=()
+          price_extra=()
           if [ -n "$limit" ]; then
             company_extra+=(--limit "$limit")
             metric_extra+=(--limit "$limit")
+            price_extra+=(--limit "$limit")
           fi
           if [ -n "$codes" ]; then
             metric_extra+=(--codes "$codes")
@@ -102,6 +105,7 @@ jobs:
           if [ "$dry_run" = "true" ]; then
             company_extra+=(--dry-run)
             metric_extra+=(--dry-run)
+            price_extra+=(--dry-run)
           fi
 
           if [ "$mode" = "companies" ] || [ "$mode" = "all" ]; then
@@ -112,4 +116,7 @@ jobs:
           fi
           if [ "$mode" = "us" ] || [ "$mode" = "all" ]; then
             python batch/update_metrics.py --market US --shard-index "$shard_index" --shard-count "$shard_count" "${metric_extra[@]}"
+          fi
+          if [ "$mode" = "watchlist_prices" ] || [ "$mode" = "all" ]; then
+            python batch/update_watchlist_prices.py --market ALL "${price_extra[@]}"
           fi

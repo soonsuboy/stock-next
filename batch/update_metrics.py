@@ -90,6 +90,17 @@ def load_companies(market: str) -> list[dict[str, Any]]:
   return result["rows"]
 
 
+def load_metric_keys(market: str) -> set[tuple[str, str]]:
+  result = execute(
+    """SELECT code, country
+       FROM metrics_history
+       WHERE country = ?
+       GROUP BY code, country""",
+    [market],
+  )
+  return {(str(row["code"]), str(row["country"])) for row in result["rows"]}
+
+
 def normalize_code(code: str, market: str) -> str:
   text = code.strip().upper()
   if market == "KR":
@@ -513,6 +524,12 @@ def main() -> None:
   parser.add_argument("--shard-index", type=int, default=0)
   parser.add_argument("--shard-count", type=int, default=1)
   parser.add_argument("--codes", help="Comma-separated stock codes to process, bypassing shard filter")
+  parser.add_argument(
+    "--selection",
+    choices=["all", "missing", "existing"],
+    default="all",
+    help="all companies, companies without metrics, or companies already having metrics",
+  )
   parser.add_argument("--limit", type=int)
   parser.add_argument("--dry-run", action="store_true")
   args = parser.parse_args()
@@ -547,6 +564,22 @@ def main() -> None:
       for company in all_companies
       if in_shard(str(company["code"]), str(company["country"]), args.shard_index, args.shard_count)
     ]
+
+  if args.selection != "all":
+    metric_keys = load_metric_keys(args.market)
+    if args.selection == "missing":
+      companies = [
+        company
+        for company in companies
+        if (str(company["code"]), str(company["country"])) not in metric_keys
+      ]
+    elif args.selection == "existing":
+      companies = [
+        company
+        for company in companies
+        if (str(company["code"]), str(company["country"])) in metric_keys
+      ]
+
   if args.limit:
     companies = companies[: args.limit]
 

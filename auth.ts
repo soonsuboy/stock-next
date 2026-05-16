@@ -108,7 +108,8 @@ const config = {
       const isProtectedPage =
         pathname.startsWith("/search") ||
         pathname.startsWith("/watchlist") ||
-        pathname.startsWith("/analysis");
+        pathname.startsWith("/analysis") ||
+        pathname.startsWith("/admin");
 
       if (isProtectedPage) {
         return Boolean(auth?.user?.id);

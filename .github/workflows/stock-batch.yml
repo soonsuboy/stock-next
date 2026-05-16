@@ -32,6 +32,15 @@ on:
         description: "Optional comma-separated codes for metrics runs"
         required: false
         default: ""
+      selection:
+        description: "Metric selection: all, missing, or existing"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - missing
+          - existing
       dry_run:
         description: "Fetch and print without writing to Turso"
         required: false
@@ -85,6 +94,7 @@ jobs:
           shard_count="${{ inputs.shard_count }}"
           limit="${{ inputs.limit }}"
           codes="${{ inputs.codes }}"
+          selection="${{ inputs.selection }}"
           dry_run="${{ inputs.dry_run }}"
 
           company_extra=()
@@ -95,6 +105,9 @@ jobs:
           fi
           if [ -n "$codes" ]; then
             metric_extra+=(--codes "$codes")
+          fi
+          if [ -n "$selection" ]; then
+            metric_extra+=(--selection "$selection")
           fi
           if [ "$dry_run" = "true" ]; then
             company_extra+=(--dry-run)

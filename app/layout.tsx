@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { auth, signOut } from "@/auth";
+import { isAdminEmail } from "@/lib/admin";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,6 +31,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const isAdmin = isAdminEmail(session?.user?.email);
 
   return (
     <html
@@ -56,6 +58,11 @@ export default async function RootLayout({
               <Link href="/analysis" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 분석
               </Link>
+              {isAdmin && (
+                <Link href="/admin" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  관리자
+                </Link>
+              )}
               {session?.user?.id ? (
                 <form action={signOutAction}>
                   <button

@@ -43,6 +43,32 @@ const formatMetric = (value: number | null | undefined, suffix = "") => {
   return `${value.toFixed(2)}${suffix}`;
 };
 
+const parseDateValue = (value: string | null | undefined) => {
+  if (!value) return null;
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateTime = (value: string | null | undefined) => {
+  const date = parseDateValue(value);
+  if (!date) return "-";
+
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const isCollectedWithin24Hours = (value: string | null | undefined) => {
+  const date = parseDateValue(value);
+  if (!date) return false;
+  return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
+};
+
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,12 +139,25 @@ export default function WatchlistPage() {
         throw new Error(data.error || "재집계 요청 실패");
       }
 
-      const summary = (data.dispatched || [])
-        .map((item: { country: string; count: number }) => `${item.country} ${item.count}개`)
+      const dispatched = data.dispatched || [];
+      const skippedRecentCount = Number(data.skippedRecentCount || 0);
+      const summary = dispatched
+        .map(
+          (item: { country: string; count: number }) =>
+            `${item.country} ${item.count}개`
+        )
         .join(", ");
-      setBatchMessage(
-        `재집계 배치를 요청했습니다${summary ? `: ${summary}` : ""}. 완료 후 새로고침하면 최신 값이 표시됩니다.`
-      );
+      if (dispatched.length === 0 && skippedRecentCount > 0) {
+        setBatchMessage(
+          `관심종목 ${skippedRecentCount}개가 모두 24시간 이내 집계되어 재집계 배치를 요청하지 않았습니다.`
+        );
+      } else {
+        setBatchMessage(
+          `재집계 배치를 요청했습니다${
+            summary ? `: ${summary}` : ""
+          }. 24시간 이내 집계된 ${skippedRecentCount}개는 스킵했습니다. 완료 후 새로고침하면 최신 값이 표시됩니다.`
+        );
+      }
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : "재집계 요청 중 오류 발생");
     } finally {
@@ -318,8 +357,9 @@ export default function WatchlistPage() {
                   </span>
                   {stock.collected_at && (
                     <span>
-                      데이터:{" "}
-                      {new Date(stock.collected_at).toLocaleDateString("ko-KR")}
+                      집계: {formatDateTime(stock.collected_at)}
+                      {isCollectedWithin24Hours(stock.collected_at) &&
+                        " (24시간 이내)"}
                     </span>
                   )}
                 </div>

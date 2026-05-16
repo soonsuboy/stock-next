@@ -4,6 +4,14 @@ import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { dispatchStockBatchWorkflow } from "@/lib/github-actions";
 
 type Country = "KR" | "US";
+const RECENT_COLLECTION_MS = 24 * 60 * 60 * 1000;
+
+interface WatchlistMetricTarget {
+  code: string;
+  country: Country;
+  name: string;
+  collectedAt: string | null;
+}
 
 function getWatchlistBatchMaxCodes() {
   const value = Number(process.env.WATCHLIST_BATCH_MAX_CODES || 100);
@@ -15,6 +23,22 @@ function isCountry(value: unknown): value is Country {
   return value === "KR" || value === "US";
 }
 
+function parseCollectedAt(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const timestamp = new Date(normalized).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function isRecentlyCollected(value: unknown) {
+  const timestamp = parseCollectedAt(value);
+  if (timestamp === null) return false;
+  return Date.now() - timestamp <= RECENT_COLLECTION_MS;
+}
+
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
@@ -23,10 +47,25 @@ export async function POST() {
 
   try {
     const result = await db.execute({
-      sql: `SELECT c.code, c.country
+      sql: `WITH latest AS (
+              SELECT code, country, MAX(snapshot_date) AS snapshot_date
+              FROM metrics_history
+              GROUP BY code, country
+            )
+            SELECT
+              c.code,
+              c.country,
+              c.name,
+              m.created_at AS collected_at
             FROM user_watchlist uw
             JOIN companies c
               ON uw.code = c.code AND uw.country = c.country
+            LEFT JOIN latest l
+              ON c.code = l.code AND c.country = l.country
+            LEFT JOIN metrics_history m
+              ON m.code = l.code
+             AND m.country = l.country
+             AND m.snapshot_date = l.snapshot_date
             WHERE uw.user_id = ?
             ORDER BY c.country, uw.added_at DESC`,
       args: [user.id],
@@ -39,10 +78,43 @@ export async function POST() {
       );
     }
 
-    if (result.rows.length > maxCodes) {
+    const targets: WatchlistMetricTarget[] = result.rows
+      .filter((row) => isCountry(row.country) && typeof row.code === "string")
+      .map((row) => ({
+        code: String(row.code),
+        country: row.country as Country,
+        name: typeof row.name === "string" ? row.name : String(row.code),
+        collectedAt:
+          typeof row.collected_at === "string" ? row.collected_at : null,
+      }));
+
+    const skippedRecent = targets.filter((target) =>
+      isRecentlyCollected(target.collectedAt)
+    );
+    const staleTargets = targets.filter(
+      (target) => !isRecentlyCollected(target.collectedAt)
+    );
+
+    if (staleTargets.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        message: "All watchlist companies were collected within 24 hours",
+        total: targets.length,
+        dispatched: [],
+        skippedRecent: skippedRecent.map((target) => ({
+          code: target.code,
+          country: target.country,
+          name: target.name,
+          collectedAt: target.collectedAt,
+        })),
+        skippedRecentCount: skippedRecent.length,
+      });
+    }
+
+    if (staleTargets.length > maxCodes) {
       return NextResponse.json(
         {
-          error: `관심종목 재집계는 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
+          error: `24시간 이내 집계된 기업을 제외해도 재집계 대상이 ${staleTargets.length}개입니다. 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
         },
         { status: 400 }
       );
@@ -53,10 +125,8 @@ export async function POST() {
       US: [],
     };
 
-    for (const row of result.rows) {
-      if (isCountry(row.country) && typeof row.code === "string") {
-        codesByCountry[row.country].push(row.code);
-      }
+    for (const target of staleTargets) {
+      codesByCountry[target.country].push(target.code);
     }
 
     const dispatched: Array<{
@@ -98,8 +168,15 @@ export async function POST() {
       {
         ok: true,
         message: "Watchlist batch workflow dispatched",
-        total: result.rows.length,
+        total: targets.length,
         dispatched,
+        skippedRecent: skippedRecent.map((target) => ({
+          code: target.code,
+          country: target.country,
+          name: target.name,
+          collectedAt: target.collectedAt,
+        })),
+        skippedRecentCount: skippedRecent.length,
       },
       { status: 202 }
     );

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getWorkflowConfig } from "@/lib/github-actions";
 
 export interface BatchCoverage {
   country: string;
@@ -46,18 +47,6 @@ export function getManualBatchLimit() {
   const value = Number(process.env.ADMIN_BATCH_MAX_LIMIT || 500);
   if (!Number.isFinite(value) || value < 1) return 500;
   return Math.min(Math.floor(value), 1000);
-}
-
-export function getWorkflowConfig() {
-  return {
-    token: process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_PAT || "",
-    repository:
-      process.env.GITHUB_ACTIONS_REPOSITORY ||
-      process.env.GITHUB_REPOSITORY ||
-      "soonsuboy/stock-next",
-    workflowId: process.env.GITHUB_ACTIONS_WORKFLOW || "stock-batch.yml",
-    ref: process.env.GITHUB_ACTIONS_REF || "main",
-  };
 }
 
 export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {

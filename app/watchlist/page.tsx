@@ -47,6 +47,9 @@ export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [batchMessage, setBatchMessage] = useState("");
+  const [batchError, setBatchError] = useState("");
+  const [reaggregating, setReaggregating] = useState(false);
 
   const fetchWatchlist = async () => {
     setLoading(true);
@@ -83,6 +86,43 @@ export default function WatchlistPage() {
       alert("제거되었습니다.");
     } catch (err) {
       alert(err instanceof Error ? err.message : "제거 중 오류 발생");
+    }
+  };
+
+  const handleReaggregateWatchlist = async () => {
+    if (stocks.length === 0 || reaggregating) return;
+    if (
+      !window.confirm(
+        `관심종목 ${stocks.length}개의 재무제표 재집계 배치를 요청하시겠습니까? 데이터는 GitHub Actions 배치가 끝난 뒤 갱신됩니다.`
+      )
+    ) {
+      return;
+    }
+
+    setReaggregating(true);
+    setBatchMessage("");
+    setBatchError("");
+
+    try {
+      const response = await fetch("/api/watchlist/reaggregate", {
+        method: "POST",
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "재집계 요청 실패");
+      }
+
+      const summary = (data.dispatched || [])
+        .map((item: { country: string; count: number }) => `${item.country} ${item.count}개`)
+        .join(", ");
+      setBatchMessage(
+        `재집계 배치를 요청했습니다${summary ? `: ${summary}` : ""}. 완료 후 새로고침하면 최신 값이 표시됩니다.`
+      );
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : "재집계 요청 중 오류 발생");
+    } finally {
+      setReaggregating(false);
     }
   };
 
@@ -124,6 +164,14 @@ export default function WatchlistPage() {
             >
               분석 보기
             </Link>
+            <button
+              type="button"
+              onClick={handleReaggregateWatchlist}
+              disabled={reaggregating}
+              className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
+            >
+              {reaggregating ? "재집계 요청 중..." : "재무제표 재집계"}
+            </button>
           </div>
         )}
       </div>
@@ -131,6 +179,18 @@ export default function WatchlistPage() {
       {error && (
         <div className="mb-6 rounded-lg bg-red-100 p-4 text-red-800 dark:bg-red-900 dark:text-red-200">
           {error}
+        </div>
+      )}
+
+      {batchMessage && (
+        <div className="mb-6 rounded-lg bg-green-100 p-4 text-green-800 dark:bg-green-950 dark:text-green-200">
+          {batchMessage}
+        </div>
+      )}
+
+      {batchError && (
+        <div className="mb-6 rounded-lg bg-red-100 p-4 text-red-800 dark:bg-red-950 dark:text-red-200">
+          {batchError}
         </div>
       )}
 

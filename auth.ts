@@ -1,6 +1,5 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
-import Kakao from "next-auth/providers/kakao";
 import { db } from "@/lib/db";
 import { isOAuthProviderConfigured } from "@/lib/oauth";
 
@@ -42,10 +41,6 @@ const providers: NextAuthConfig["providers"] = [];
 
 if (isOAuthProviderConfigured("google")) {
   providers.push(Google);
-}
-
-if (isOAuthProviderConfigured("kakao")) {
-  providers.push(Kakao);
 }
 
 const config = {

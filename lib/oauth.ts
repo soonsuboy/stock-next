@@ -6,13 +6,6 @@ export const oauthProviders = [
     secretEnv: "AUTH_GOOGLE_SECRET",
     callbackPath: "/api/auth/callback/google",
   },
-  {
-    id: "kakao",
-    label: "Kakao",
-    idEnv: "AUTH_KAKAO_ID",
-    secretEnv: "AUTH_KAKAO_SECRET",
-    callbackPath: "/api/auth/callback/kakao",
-  },
 ] as const;
 
 export type OAuthProviderId = (typeof oauthProviders)[number]["id"];

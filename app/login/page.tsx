@@ -7,11 +7,6 @@ async function signInWithGoogle() {
   await signIn("google", { redirectTo: "/watchlist" });
 }
 
-async function signInWithKakao() {
-  "use server";
-  await signIn("kakao", { redirectTo: "/watchlist" });
-}
-
 export default async function LoginPage({
   searchParams,
 }: {
@@ -50,15 +45,6 @@ export default async function LoginPage({
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800"
             >
               Google로 계속하기
-            </button>
-          </form>
-          <form action={signInWithKakao}>
-            <button
-              type="submit"
-              disabled={!setupStatus.find((item) => item.id === "kakao")?.configured}
-              className="w-full rounded-lg bg-[#FEE500] px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-[#f6dc00] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Kakao로 계속하기
             </button>
           </form>
         </div>

@@ -141,6 +141,7 @@ export default function WatchlistPage() {
 
       const dispatched = data.dispatched || [];
       const skippedRecentCount = Number(data.skippedRecentCount || 0);
+      const skipRecentHours = Number(data.skipRecentHours || 24);
       const summary = dispatched
         .map(
           (item: { country: string; count: number }) =>
@@ -149,13 +150,13 @@ export default function WatchlistPage() {
         .join(", ");
       if (dispatched.length === 0 && skippedRecentCount > 0) {
         setBatchMessage(
-          `관심종목 ${skippedRecentCount}개가 모두 24시간 이내 집계되어 재집계 배치를 요청하지 않았습니다.`
+          `관심종목 ${skippedRecentCount}개가 모두 ${skipRecentHours}시간 이내 집계되어 재집계 배치를 요청하지 않았습니다.`
         );
       } else {
         setBatchMessage(
           `재집계 배치를 요청했습니다${
             summary ? `: ${summary}` : ""
-          }. 24시간 이내 집계된 ${skippedRecentCount}개는 스킵했습니다. 완료 후 새로고침하면 최신 값이 표시됩니다.`
+          }. ${skipRecentHours}시간 이내 집계된 ${skippedRecentCount}개는 스킵했습니다. 완료 후 새로고침하면 최신 값이 표시됩니다.`
         );
       }
     } catch (err) {

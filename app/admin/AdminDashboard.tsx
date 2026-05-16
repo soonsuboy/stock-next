@@ -9,6 +9,7 @@ interface AdminDashboardProps {
 
 type Market = "KR" | "US";
 type Selection = "missing" | "existing";
+type BatchSettings = AdminBatchStatus["settings"];
 
 const statusLabels: Record<string, string> = {
   success: "성공",
@@ -16,6 +17,15 @@ const statusLabels: Record<string, string> = {
   failed: "실패",
   running: "실행 중",
 };
+const dayOptions = [
+  { value: 1, label: "월요일" },
+  { value: 2, label: "화요일" },
+  { value: 3, label: "수요일" },
+  { value: 4, label: "목요일" },
+  { value: 5, label: "금요일" },
+  { value: 6, label: "토요일" },
+  { value: 7, label: "일요일" },
+];
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ko-KR").format(value);
@@ -40,6 +50,10 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [settings, setSettings] = useState<BatchSettings>(initialStatus.settings);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [settingsError, setSettingsError] = useState("");
 
   const maxLimit = status.maxManualLimit;
   const selectedCoverage = useMemo(
@@ -52,7 +66,43 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     if (!response.ok) {
       throw new Error("관리자 상태를 다시 불러오지 못했습니다.");
     }
-    setStatus(await response.json());
+    const nextStatus = await response.json();
+    setStatus(nextStatus);
+    setSettings(nextStatus.settings);
+  };
+
+  const updateSetting = <K extends keyof BatchSettings>(
+    key: K,
+    value: BatchSettings[K]
+  ) => {
+    setSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  const saveSettings = async () => {
+    setSettingsSaving(true);
+    setSettingsMessage("");
+    setSettingsError("");
+
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "배치 설정 저장 실패");
+      }
+
+      setSettings(data.settings);
+      setStatus((current) => ({ ...current, settings: data.settings }));
+      setSettingsMessage("배치 설정을 저장했습니다. 다음 자동 배치부터 적용됩니다.");
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "배치 설정 저장 중 오류 발생");
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   const dispatchBatch = async (nextSelection: Selection) => {
@@ -99,7 +149,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
 
       {!status.workflowDispatchConfigured && (
         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          수동 배치를 실행하려면 Vercel 환경변수에{" "}
+          수동 배치를 실행하려면 Vercel 또는 localhost 환경변수에{" "}
           <span className="font-mono font-semibold">GITHUB_ACTIONS_TOKEN</span>
           을 추가해야 합니다. 현재 페이지는 현황 조회만 가능합니다.
         </div>
@@ -162,6 +212,233 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               </p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
+          자동 배치 설정
+        </h2>
+        <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.scheduleEnabled}
+                onChange={(event) =>
+                  updateSetting("scheduleEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              자동 배치 활성화
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              실행 기준 시간(KST)
+              <input
+                type="time"
+                value={settings.scheduleTimeKst}
+                onChange={(event) =>
+                  updateSetting("scheduleTimeKst", event.target.value)
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              실행 허용 범위(분)
+              <input
+                type="number"
+                min={5}
+                max={180}
+                value={settings.scheduleWindowMinutes}
+                onChange={(event) =>
+                  updateSetting(
+                    "scheduleWindowMinutes",
+                    Number(event.target.value) || 60
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settings.companyMasterEnabled}
+                  onChange={(event) =>
+                    updateSetting("companyMasterEnabled", event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                기업 마스터 갱신
+              </label>
+              <label className="mt-3 block text-sm text-slate-600 dark:text-slate-400">
+                실행 요일
+                <select
+                  value={settings.companyMasterDay}
+                  onChange={(event) =>
+                    updateSetting("companyMasterDay", Number(event.target.value))
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                >
+                  {dayOptions.map((day) => (
+                    <option key={day.value} value={day.value}>
+                      {day.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settings.krEnabled}
+                  onChange={(event) =>
+                    updateSetting("krEnabled", event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                한국 재무 갱신
+              </label>
+              <label className="mt-3 block text-sm text-slate-600 dark:text-slate-400">
+                실행 요일
+                <select
+                  value={settings.krDay}
+                  onChange={(event) =>
+                    updateSetting("krDay", Number(event.target.value))
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                >
+                  {dayOptions.map((day) => (
+                    <option key={day.value} value={day.value}>
+                      {day.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="mt-3 block text-sm text-slate-600 dark:text-slate-400">
+                1회 처리 건수
+                <input
+                  type="number"
+                  min={0}
+                  max={5000}
+                  value={settings.krLimit}
+                  onChange={(event) =>
+                    updateSetting("krLimit", Number(event.target.value) || 0)
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500">0은 전체 실행입니다.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settings.usEnabled}
+                  onChange={(event) =>
+                    updateSetting("usEnabled", event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                미국 재무 갱신
+              </label>
+              <label className="mt-3 block text-sm text-slate-600 dark:text-slate-400">
+                1회 처리 건수
+                <input
+                  type="number"
+                  min={0}
+                  max={5000}
+                  value={settings.usLimit}
+                  onChange={(event) =>
+                    updateSetting("usLimit", Number(event.target.value) || 0)
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </label>
+              <label className="mt-3 block text-sm text-slate-600 dark:text-slate-400">
+                미국 shard 수
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={settings.usShardCount}
+                  onChange={(event) =>
+                    updateSetting("usShardCount", Number(event.target.value) || 7)
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500">0건은 shard 전체 실행입니다.</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              자동 배치 대상
+              <select
+                value={settings.scheduledSelection}
+                onChange={(event) =>
+                  updateSetting(
+                    "scheduledSelection",
+                    event.target.value as BatchSettings["scheduledSelection"]
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              >
+                <option value="all">전체 재집계</option>
+                <option value="missing">미적재 기업만</option>
+                <option value="existing">기존 적재 기업만</option>
+              </select>
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              관심종목 재집계 스킵 기준(시간)
+              <input
+                type="number"
+                min={0}
+                max={168}
+                value={settings.watchlistSkipRecentHours}
+                onChange={(event) =>
+                  updateSetting(
+                    "watchlistSkipRecentHours",
+                    Number(event.target.value) || 0
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={settingsSaving}
+              onClick={saveSettings}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {settingsSaving ? "저장 중..." : "배치 설정 저장"}
+            </button>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              GitHub Actions는 15분마다 깨어나 DB 설정의 실행 시간과 조건을
+              확인합니다.
+            </p>
+          </div>
+
+          {settingsMessage && (
+            <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">
+              {settingsMessage}
+            </div>
+          )}
+          {settingsError && (
+            <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {settingsError}
+            </div>
+          )}
         </div>
       </section>
 

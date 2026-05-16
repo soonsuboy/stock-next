@@ -2,8 +2,8 @@ name: Stock Data Batch
 
 on:
   schedule:
-    # 03:00 KST daily. Sunday also refreshes company masters and KR metrics.
-    - cron: "0 18 * * *"
+    # Poll DB-backed schedule settings every 15 minutes.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -72,17 +72,7 @@ jobs:
 
       - name: Run scheduled batch
         if: github.event_name == 'schedule'
-        shell: bash
-        run: |
-          set -euo pipefail
-          day="$(TZ=Asia/Seoul date +%u)"
-          if [ "$day" = "7" ]; then
-            python batch/update_companies.py --market ALL
-            python batch/update_metrics.py --market KR
-          fi
-
-          shard=$((day % 7))
-          python batch/update_metrics.py --market US --shard-index "$shard" --shard-count 7
+        run: python batch/run_scheduled.py
 
       - name: Run manual batch
         if: github.event_name == 'workflow_dispatch'

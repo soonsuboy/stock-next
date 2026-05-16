@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getBatchSettings, type BatchSettings } from "@/lib/batch-settings";
 import { getWorkflowConfig } from "@/lib/github-actions";
 
 export interface BatchCoverage {
@@ -28,6 +29,7 @@ export interface BatchRun {
 export interface AdminBatchStatus {
   coverage: BatchCoverage[];
   recentRuns: BatchRun[];
+  settings: BatchSettings;
   workflowDispatchConfigured: boolean;
   repository: string;
   workflowId: string;
@@ -50,7 +52,7 @@ export function getManualBatchLimit() {
 }
 
 export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
-  const [coverageResult, runsResult] = await Promise.all([
+  const [coverageResult, runsResult, settings] = await Promise.all([
     db.execute({
       sql: `WITH metric_companies AS (
               SELECT code, country
@@ -98,6 +100,7 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
             ORDER BY COALESCE(started_at, completed_at) DESC
             LIMIT 20`,
     }),
+    getBatchSettings(),
   ]);
 
   const workflow = getWorkflowConfig();
@@ -125,6 +128,7 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
       failed: toNumber(row.failed),
       errorSample: toStringOrNull(row.error_sample),
     })),
+    settings,
     workflowDispatchConfigured: Boolean(workflow.token),
     repository: workflow.repository,
     workflowId: workflow.workflowId,

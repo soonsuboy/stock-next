@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { dispatchStockBatchWorkflow } from "@/lib/github-actions";
+import { getBatchSettings } from "@/lib/batch-settings";
 
 type Country = "KR" | "US";
-const RECENT_COLLECTION_MS = 24 * 60 * 60 * 1000;
 
 interface WatchlistMetricTarget {
   code: string;
@@ -33,10 +33,12 @@ function parseCollectedAt(value: unknown) {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
-function isRecentlyCollected(value: unknown) {
+function isRecentlyCollected(value: unknown, skipRecentHours: number) {
+  if (skipRecentHours <= 0) return false;
+
   const timestamp = parseCollectedAt(value);
   if (timestamp === null) return false;
-  return Date.now() - timestamp <= RECENT_COLLECTION_MS;
+  return Date.now() - timestamp <= skipRecentHours * 60 * 60 * 1000;
 }
 
 export async function POST() {
@@ -44,6 +46,8 @@ export async function POST() {
   if (!user) return unauthorized();
 
   const maxCodes = getWatchlistBatchMaxCodes();
+  const settings = await getBatchSettings();
+  const skipRecentHours = settings.watchlistSkipRecentHours;
 
   try {
     const result = await db.execute({
@@ -89,16 +93,16 @@ export async function POST() {
       }));
 
     const skippedRecent = targets.filter((target) =>
-      isRecentlyCollected(target.collectedAt)
+      isRecentlyCollected(target.collectedAt, skipRecentHours)
     );
     const staleTargets = targets.filter(
-      (target) => !isRecentlyCollected(target.collectedAt)
+      (target) => !isRecentlyCollected(target.collectedAt, skipRecentHours)
     );
 
     if (staleTargets.length === 0) {
       return NextResponse.json({
         ok: true,
-        message: "All watchlist companies were collected within 24 hours",
+        message: `All watchlist companies were collected within ${skipRecentHours} hours`,
         total: targets.length,
         dispatched: [],
         skippedRecent: skippedRecent.map((target) => ({
@@ -108,13 +112,14 @@ export async function POST() {
           collectedAt: target.collectedAt,
         })),
         skippedRecentCount: skippedRecent.length,
+        skipRecentHours,
       });
     }
 
     if (staleTargets.length > maxCodes) {
       return NextResponse.json(
         {
-          error: `24시간 이내 집계된 기업을 제외해도 재집계 대상이 ${staleTargets.length}개입니다. 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
+          error: `${skipRecentHours}시간 이내 집계된 기업을 제외해도 재집계 대상이 ${staleTargets.length}개입니다. 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
         },
         { status: 400 }
       );
@@ -177,6 +182,7 @@ export async function POST() {
           collectedAt: target.collectedAt,
         })),
         skippedRecentCount: skippedRecent.length,
+        skipRecentHours,
       },
       { status: 202 }
     );

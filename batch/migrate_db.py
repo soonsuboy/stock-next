@@ -3,6 +3,23 @@ import argparse
 from db import execute, query_one
 
 
+DEFAULT_BATCH_SETTINGS = {
+  "schedule_enabled": "true",
+  "schedule_time_kst": "03:00",
+  "schedule_window_minutes": "60",
+  "company_master_enabled": "true",
+  "company_master_day": "7",
+  "kr_enabled": "true",
+  "kr_day": "7",
+  "kr_limit": "0",
+  "us_enabled": "true",
+  "us_limit": "1000",
+  "us_shard_count": "7",
+  "scheduled_selection": "all",
+  "watchlist_skip_recent_hours": "24",
+}
+
+
 def table_sql(name: str) -> str:
   row = query_one(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -114,6 +131,23 @@ def create_metrics_history() -> None:
   execute("ALTER TABLE metrics_history_next RENAME TO metrics_history")
 
 
+def create_batch_settings() -> None:
+  execute(
+    """CREATE TABLE IF NOT EXISTS batch_settings (
+         key        TEXT PRIMARY KEY,
+         value      TEXT NOT NULL,
+         updated_at TEXT
+       )"""
+  )
+
+  for key, value in DEFAULT_BATCH_SETTINGS.items():
+    execute(
+      """INSERT OR IGNORE INTO batch_settings(key, value, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)""",
+      [key, value],
+    )
+
+
 def migrate(clear_legacy_watchlist: bool) -> None:
   execute(
     """CREATE TABLE IF NOT EXISTS app_users (
@@ -130,6 +164,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   )
   create_companies()
   create_metrics_history()
+  create_batch_settings()
   execute(
     """CREATE TABLE IF NOT EXISTS corp_codes (
          stock_code TEXT PRIMARY KEY,

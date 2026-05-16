@@ -18,10 +18,19 @@ export interface BatchSettings {
   watchlistSkipRecentHours: number;
 }
 
+export interface BatchSchedulerMeta {
+  lastScheduledRunDateKst: string;
+  lastSchedulerCheckAt: string;
+  lastSchedulerCheckReason: string;
+  lastScheduledRunStartedAt: string;
+  lastScheduledRunCompletedAt: string;
+  lastScheduledRunStatus: string;
+}
+
 const DEFAULT_SETTINGS: Record<string, string> = {
   schedule_enabled: "true",
   schedule_time_kst: "03:00",
-  schedule_window_minutes: "60",
+  schedule_window_minutes: "1440",
   company_master_enabled: "true",
   company_master_day: "7",
   kr_enabled: "true",
@@ -32,6 +41,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   us_shard_count: "7",
   scheduled_selection: "all",
   watchlist_skip_recent_hours: "24",
+  last_scheduled_run_date_kst: "",
+  last_scheduler_check_at: "",
+  last_scheduler_check_reason: "",
+  last_scheduled_run_started_at: "",
+  last_scheduled_run_completed_at: "",
+  last_scheduled_run_status: "",
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
@@ -86,9 +101,9 @@ function parseSettings(values: Record<string, string>): BatchSettings {
     scheduleTimeKst: parseTime(values.schedule_time_kst),
     scheduleWindowMinutes: parseInteger(
       values.schedule_window_minutes,
-      60,
+      1440,
       5,
-      180
+      1440
     ),
     companyMasterEnabled: parseBoolean(values.company_master_enabled, true),
     companyMasterDay: parseInteger(values.company_master_day, 7, 1, 7),
@@ -142,6 +157,38 @@ export async function getBatchSettings(): Promise<BatchSettings> {
   return parseSettings(values);
 }
 
+export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
+  await ensureBatchSettings();
+  const result = await db.execute(
+    `SELECT key, value
+     FROM batch_settings
+     WHERE key IN (
+       'last_scheduled_run_date_kst',
+       'last_scheduler_check_at',
+       'last_scheduler_check_reason',
+       'last_scheduled_run_started_at',
+       'last_scheduled_run_completed_at',
+       'last_scheduled_run_status'
+     )`
+  );
+  const values = { ...DEFAULT_SETTINGS };
+
+  for (const row of result.rows) {
+    if (typeof row.key === "string" && typeof row.value === "string") {
+      values[row.key] = row.value;
+    }
+  }
+
+  return {
+    lastScheduledRunDateKst: values.last_scheduled_run_date_kst,
+    lastSchedulerCheckAt: values.last_scheduler_check_at,
+    lastSchedulerCheckReason: values.last_scheduler_check_reason,
+    lastScheduledRunStartedAt: values.last_scheduled_run_started_at,
+    lastScheduledRunCompletedAt: values.last_scheduled_run_completed_at,
+    lastScheduledRunStatus: values.last_scheduled_run_status,
+  };
+}
+
 export function normalizeBatchSettings(input: unknown): BatchSettings {
   const source =
     input && typeof input === "object"
@@ -151,7 +198,7 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
   return parseSettings({
     schedule_enabled: String(source.scheduleEnabled ?? "true"),
     schedule_time_kst: String(source.scheduleTimeKst ?? "03:00"),
-    schedule_window_minutes: String(source.scheduleWindowMinutes ?? "60"),
+    schedule_window_minutes: String(source.scheduleWindowMinutes ?? "1440"),
     company_master_enabled: String(source.companyMasterEnabled ?? "true"),
     company_master_day: String(source.companyMasterDay ?? "7"),
     kr_enabled: String(source.krEnabled ?? "true"),

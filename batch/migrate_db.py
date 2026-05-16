@@ -6,7 +6,7 @@ from db import execute, query_one
 DEFAULT_BATCH_SETTINGS = {
   "schedule_enabled": "true",
   "schedule_time_kst": "03:00",
-  "schedule_window_minutes": "60",
+  "schedule_window_minutes": "1440",
   "company_master_enabled": "true",
   "company_master_day": "7",
   "kr_enabled": "true",
@@ -17,6 +17,12 @@ DEFAULT_BATCH_SETTINGS = {
   "us_shard_count": "7",
   "scheduled_selection": "all",
   "watchlist_skip_recent_hours": "24",
+  "last_scheduled_run_date_kst": "",
+  "last_scheduler_check_at": "",
+  "last_scheduler_check_reason": "",
+  "last_scheduled_run_started_at": "",
+  "last_scheduled_run_completed_at": "",
+  "last_scheduled_run_status": "",
 }
 
 

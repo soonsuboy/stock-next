@@ -9,7 +9,7 @@ KST = ZoneInfo("Asia/Seoul")
 DEFAULTS = {
   "schedule_enabled": "true",
   "schedule_time_kst": "03:00",
-  "schedule_window_minutes": "60",
+  "schedule_window_minutes": "1440",
   "company_master_enabled": "true",
   "company_master_day": "7",
   "kr_enabled": "true",
@@ -20,6 +20,11 @@ DEFAULTS = {
   "us_shard_count": "7",
   "scheduled_selection": "all",
   "last_scheduled_run_date_kst": "",
+  "last_scheduler_check_at": "",
+  "last_scheduler_check_reason": "",
+  "last_scheduled_run_started_at": "",
+  "last_scheduled_run_completed_at": "",
+  "last_scheduled_run_status": "",
 }
 
 
@@ -82,16 +87,25 @@ def should_run_now(settings: dict[str, str], now_kst: datetime) -> tuple[bool, s
   except ValueError:
     target = datetime.combine(now_kst.date(), datetime_time(3, 0), KST)
 
-  window = int_setting(settings, "schedule_window_minutes", 60, 5, 180)
+  window = int_setting(settings, "schedule_window_minutes", 1440, 5, 1440)
   delta_minutes = (now_kst - target).total_seconds() / 60
-  if delta_minutes < 0 or delta_minutes > window:
-    return False, f"outside schedule window target={target.strftime('%H:%M')} window={window}m"
+  if delta_minutes < 0:
+    return False, f"before schedule target={target.strftime('%H:%M')}"
 
   today = now_kst.date().isoformat()
   if settings.get("last_scheduled_run_date_kst") == today:
     return False, f"already ran for {today}"
 
-  return True, "inside schedule window"
+  if delta_minutes > window:
+    return True, (
+      f"late schedule execution target={target.strftime('%H:%M')} "
+      f"delay={int(delta_minutes)}m window={window}m"
+    )
+
+  return True, (
+    f"due after schedule target={target.strftime('%H:%M')} "
+    f"delay={int(delta_minutes)}m window={window}m"
+  )
 
 
 def run_command(command: list[str]) -> None:
@@ -143,11 +157,15 @@ def main() -> None:
   now_kst = datetime.now(KST)
   should_run, reason = should_run_now(settings, now_kst)
   print(f"KST now={now_kst.isoformat(timespec='seconds')} reason={reason}")
+  save_setting("last_scheduler_check_at", now_kst.isoformat(timespec="seconds"))
+  save_setting("last_scheduler_check_reason", reason)
 
   if not should_run:
     return
 
   run_id = insert_run("running", reason, now_kst)
+  save_setting("last_scheduled_run_started_at", now_kst.isoformat(timespec="seconds"))
+  save_setting("last_scheduled_run_status", "running")
   commands_run = 0
 
   try:
@@ -195,8 +213,12 @@ def main() -> None:
       commands_run += 1
 
     save_setting("last_scheduled_run_date_kst", now_kst.date().isoformat())
+    save_setting("last_scheduled_run_completed_at", datetime.now(KST).isoformat(timespec="seconds"))
+    save_setting("last_scheduled_run_status", "success")
     complete_run(run_id, "success", commands_run, "scheduled batch completed")
   except Exception as error:
+    save_setting("last_scheduled_run_completed_at", datetime.now(KST).isoformat(timespec="seconds"))
+    save_setting("last_scheduled_run_status", "failed")
     complete_run(run_id, "failed", commands_run, str(error))
     raise
 

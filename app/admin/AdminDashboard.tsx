@@ -244,21 +244,51 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               />
             </label>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              실행 허용 범위(분)
+              지연 경고 기준(분)
               <input
                 type="number"
                 min={5}
-                max={180}
+                max={1440}
                 value={settings.scheduleWindowMinutes}
                 onChange={(event) =>
                   updateSetting(
                     "scheduleWindowMinutes",
-                    Number(event.target.value) || 60
+                    Number(event.target.value) || 1440
                   )
                 }
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
               />
             </label>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-950 md:grid-cols-3">
+            <div>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                마지막 스케줄 체크
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">
+                {formatDateTime(status.schedulerMeta.lastSchedulerCheckAt)}
+              </p>
+            </div>
+            <div>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                체크 결과
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">
+                {status.schedulerMeta.lastSchedulerCheckReason || "-"}
+              </p>
+            </div>
+            <div>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                마지막 자동 실행
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">
+                {status.schedulerMeta.lastScheduledRunDateKst || "-"}{" "}
+                {status.schedulerMeta.lastScheduledRunStatus
+                  ? `(${status.schedulerMeta.lastScheduledRunStatus})`
+                  : ""}
+              </p>
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -424,8 +454,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               {settingsSaving ? "저장 중..." : "배치 설정 저장"}
             </button>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              GitHub Actions는 15분마다 깨어나 DB 설정의 실행 시간과 조건을
-              확인합니다.
+              GitHub Actions는 15분마다 깨어나며, GitHub가 늦게 실행해도
+              설정 시간 이후 그날 첫 실행이면 배치를 시작합니다. 기준보다 늦으면
+              스케줄러 로그에 late로 남깁니다.
             </p>
           </div>
 

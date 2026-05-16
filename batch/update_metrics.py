@@ -52,6 +52,7 @@ ADR_SHARE_RATIO = {
   # quotes the NYSE ADS, so divide shares before calculating USD market cap.
   "TSM": 5.0,
 }
+SEC_TICKER_MAP: dict[str, str] | None = None
 
 
 def now_text() -> str:
@@ -99,6 +100,93 @@ def load_metric_keys(market: str) -> set[tuple[str, str]]:
     [market],
   )
   return {(str(row["code"]), str(row["country"])) for row in result["rows"]}
+
+
+def fetch_sec_ticker_map() -> dict[str, str]:
+  global SEC_TICKER_MAP
+  if SEC_TICKER_MAP is not None:
+    return SEC_TICKER_MAP
+
+  out = dict(KNOWN_US_CIKS)
+  urls = [
+    "https://www.sec.gov/files/company_tickers.json",
+    "https://www.sec.gov/files/company_tickers_exchange.json",
+  ]
+
+  for url in urls:
+    try:
+      response = requests.get(
+        url,
+        headers={
+          "User-Agent": UA,
+          "Accept-Encoding": "gzip, deflate",
+        },
+        timeout=30,
+      )
+      response.raise_for_status()
+      data = response.json()
+    except requests.RequestException as error:
+      print(f"Warning: SEC ticker map unavailable: {url} {error}")
+      continue
+
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+      fields = [str(field) for field in data.get("fields") or []]
+      try:
+        cik_index = fields.index("cik")
+        ticker_index = fields.index("ticker")
+      except ValueError:
+        continue
+
+      for row in data["data"]:
+        if not isinstance(row, list):
+          continue
+        if len(row) <= max(cik_index, ticker_index):
+          continue
+        ticker = normalize_code(str(row[ticker_index]), "US")
+        cik = str(row[cik_index]).zfill(10)
+        if ticker and cik != "0000000000":
+          out[ticker] = cik
+    elif isinstance(data, dict):
+      for row in data.values():
+        if not isinstance(row, dict):
+          continue
+        ticker = normalize_code(str(row.get("ticker") or ""), "US")
+        cik = row.get("cik_str")
+        if ticker and cik:
+          out[ticker] = str(cik).zfill(10)
+
+  SEC_TICKER_MAP = out
+  return out
+
+
+def hydrate_us_ciks(companies: list[dict[str, Any]], persist: bool) -> list[dict[str, Any]]:
+  if not companies:
+    return companies
+
+  cik_map = fetch_sec_ticker_map()
+  update_rows: list[tuple[Any, ...]] = []
+
+  for company in companies:
+    code = normalize_code(str(company.get("code") or ""), "US")
+    existing = str(company.get("cik") or "").strip()
+    if existing:
+      company["cik"] = existing.zfill(10)
+      continue
+
+    cik = cik_map.get(code)
+    if cik:
+      company["cik"] = cik
+      update_rows.append((cik, now_text(), code))
+
+  if persist and update_rows:
+    execute_many(
+      """UPDATE companies
+         SET cik = ?, updated_at = ?
+         WHERE country = 'US' AND code = ?""",
+      update_rows,
+    )
+
+  return companies
 
 
 def normalize_code(code: str, market: str) -> str:
@@ -575,10 +663,15 @@ def main() -> None:
       ]
     elif args.selection == "existing":
       companies = [
-        company
-        for company in companies
-        if (str(company["code"]), str(company["country"])) in metric_keys
+          company
+          for company in companies
+          if (str(company["code"]), str(company["country"])) in metric_keys
       ]
+
+  if args.market == "US":
+    companies = hydrate_us_ciks(companies, persist=not args.dry_run)
+    if not args.codes:
+      companies = [company for company in companies if company.get("cik")]
 
   if args.limit:
     companies = companies[: args.limit]

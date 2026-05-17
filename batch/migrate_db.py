@@ -18,6 +18,7 @@ DEFAULT_BATCH_SETTINGS = {
   "scheduled_selection": "all",
   "watchlist_skip_recent_hours": "24",
   "watchlist_price_enabled": "true",
+  "watchlist_price_time_kst": "06:30",
   "telegram_enabled": "false",
   "telegram_collect_hours_back": "2",
   "telegram_message_limit": "200",
@@ -32,6 +33,11 @@ DEFAULT_BATCH_SETTINGS = {
   "last_scheduled_run_started_at": "",
   "last_scheduled_run_completed_at": "",
   "last_scheduled_run_status": "",
+  "last_watchlist_price_run_date_kst": "",
+  "last_watchlist_price_run_started_at": "",
+  "last_watchlist_price_run_completed_at": "",
+  "last_watchlist_price_run_status": "",
+  "last_watchlist_price_check_reason": "",
 }
 
 

@@ -17,6 +17,7 @@ export interface BatchSettings {
   scheduledSelection: MetricSelection;
   watchlistSkipRecentHours: number;
   watchlistPriceEnabled: boolean;
+  watchlistPriceTimeKst: string;
   telegramEnabled: boolean;
   telegramCollectHoursBack: number;
   telegramMessageLimit: number;
@@ -32,6 +33,11 @@ export interface BatchSchedulerMeta {
   lastScheduledRunStartedAt: string;
   lastScheduledRunCompletedAt: string;
   lastScheduledRunStatus: string;
+  lastWatchlistPriceRunDateKst: string;
+  lastWatchlistPriceRunStartedAt: string;
+  lastWatchlistPriceRunCompletedAt: string;
+  lastWatchlistPriceRunStatus: string;
+  lastWatchlistPriceCheckReason: string;
 }
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -49,6 +55,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   scheduled_selection: "all",
   watchlist_skip_recent_hours: "24",
   watchlist_price_enabled: "true",
+  watchlist_price_time_kst: "06:30",
   telegram_enabled: "false",
   telegram_collect_hours_back: "2",
   telegram_message_limit: "200",
@@ -63,6 +70,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_scheduled_run_started_at: "",
   last_scheduled_run_completed_at: "",
   last_scheduled_run_status: "",
+  last_watchlist_price_run_date_kst: "",
+  last_watchlist_price_run_started_at: "",
+  last_watchlist_price_run_completed_at: "",
+  last_watchlist_price_run_status: "",
+  last_watchlist_price_check_reason: "",
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
@@ -81,10 +93,10 @@ function parseInteger(
   return Math.max(min, Math.min(max, numberValue));
 }
 
-function parseTime(value: string | undefined) {
-  if (!value || !/^\d{2}:\d{2}$/.test(value)) return "03:00";
+function parseTime(value: string | undefined, fallback = "03:00") {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return fallback;
   const [hour, minute] = value.split(":").map(Number);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "03:00";
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
   return value;
 }
 
@@ -109,6 +121,7 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
     scheduled_selection: settings.scheduledSelection,
     watchlist_skip_recent_hours: String(settings.watchlistSkipRecentHours),
     watchlist_price_enabled: String(settings.watchlistPriceEnabled),
+    watchlist_price_time_kst: settings.watchlistPriceTimeKst,
     telegram_enabled: String(settings.telegramEnabled),
     telegram_collect_hours_back: String(settings.telegramCollectHoursBack),
     telegram_message_limit: String(settings.telegramMessageLimit),
@@ -144,6 +157,7 @@ function parseSettings(values: Record<string, string>): BatchSettings {
       168
     ),
     watchlistPriceEnabled: parseBoolean(values.watchlist_price_enabled, true),
+    watchlistPriceTimeKst: parseTime(values.watchlist_price_time_kst, "06:30"),
     telegramEnabled: parseBoolean(values.telegram_enabled, false),
     telegramCollectHoursBack: parseInteger(
       values.telegram_collect_hours_back,
@@ -208,7 +222,12 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
        'last_scheduler_check_reason',
        'last_scheduled_run_started_at',
        'last_scheduled_run_completed_at',
-       'last_scheduled_run_status'
+       'last_scheduled_run_status',
+       'last_watchlist_price_run_date_kst',
+       'last_watchlist_price_run_started_at',
+       'last_watchlist_price_run_completed_at',
+       'last_watchlist_price_run_status',
+       'last_watchlist_price_check_reason'
      )`
   );
   const values = { ...DEFAULT_SETTINGS };
@@ -226,6 +245,12 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
     lastScheduledRunStartedAt: values.last_scheduled_run_started_at,
     lastScheduledRunCompletedAt: values.last_scheduled_run_completed_at,
     lastScheduledRunStatus: values.last_scheduled_run_status,
+    lastWatchlistPriceRunDateKst: values.last_watchlist_price_run_date_kst,
+    lastWatchlistPriceRunStartedAt: values.last_watchlist_price_run_started_at,
+    lastWatchlistPriceRunCompletedAt:
+      values.last_watchlist_price_run_completed_at,
+    lastWatchlistPriceRunStatus: values.last_watchlist_price_run_status,
+    lastWatchlistPriceCheckReason: values.last_watchlist_price_check_reason,
   };
 }
 
@@ -250,6 +275,7 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     scheduled_selection: String(source.scheduledSelection ?? "all"),
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
     watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
+    watchlist_price_time_kst: String(source.watchlistPriceTimeKst ?? "06:30"),
     telegram_enabled: String(source.telegramEnabled ?? "false"),
     telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "2"),
     telegram_message_limit: String(source.telegramMessageLimit ?? "200"),

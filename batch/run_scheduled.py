@@ -20,12 +20,18 @@ DEFAULTS = {
   "us_shard_count": "7",
   "scheduled_selection": "all",
   "watchlist_price_enabled": "true",
+  "watchlist_price_time_kst": "06:30",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
   "last_scheduled_run_started_at": "",
   "last_scheduled_run_completed_at": "",
   "last_scheduled_run_status": "",
+  "last_watchlist_price_run_date_kst": "",
+  "last_watchlist_price_run_started_at": "",
+  "last_watchlist_price_run_completed_at": "",
+  "last_watchlist_price_run_status": "",
+  "last_watchlist_price_check_reason": "",
 }
 
 
@@ -109,6 +115,33 @@ def should_run_now(settings: dict[str, str], now_kst: datetime) -> tuple[bool, s
   )
 
 
+def should_run_watchlist_price_now(
+  settings: dict[str, str], now_kst: datetime
+) -> tuple[bool, str]:
+  if not bool_setting(settings, "watchlist_price_enabled"):
+    return False, "watchlist price schedule disabled"
+
+  time_text = settings.get("watchlist_price_time_kst", "06:30")
+  try:
+    hour, minute = [int(part) for part in time_text.split(":", 1)]
+    target = datetime.combine(now_kst.date(), datetime_time(hour, minute), KST)
+  except ValueError:
+    target = datetime.combine(now_kst.date(), datetime_time(6, 30), KST)
+
+  delta_minutes = (now_kst - target).total_seconds() / 60
+  if delta_minutes < 0:
+    return False, f"before watchlist price target={target.strftime('%H:%M')}"
+
+  today = now_kst.date().isoformat()
+  if settings.get("last_watchlist_price_run_date_kst") == today:
+    return False, f"watchlist prices already ran for {today}"
+
+  return True, (
+    f"watchlist price due target={target.strftime('%H:%M')} "
+    f"delay={int(delta_minutes)}m"
+  )
+
+
 def run_command(command: list[str]) -> None:
   print("+", " ".join(command), flush=True)
   subprocess.run(command, check=True)
@@ -153,6 +186,45 @@ def complete_run(run_id: str, status: str, processed: int, message: str) -> None
   )
 
 
+def run_watchlist_price_schedule(settings: dict[str, str], now_kst: datetime) -> None:
+  should_run, reason = should_run_watchlist_price_now(settings, now_kst)
+  print(f"watchlist price reason={reason}")
+  save_setting("last_watchlist_price_check_reason", reason)
+  if not should_run:
+    return
+
+  run_id = f"watchlist-price-{now_kst.strftime('%Y%m%d')}"
+  save_setting(
+    "last_watchlist_price_run_started_at",
+    now_kst.isoformat(timespec="seconds"),
+  )
+  save_setting("last_watchlist_price_run_status", "running")
+  try:
+    run_command(
+      [
+        sys.executable,
+        "batch/update_watchlist_prices.py",
+        "--market",
+        "ALL",
+        "--run-id",
+        run_id,
+      ]
+    )
+    save_setting("last_watchlist_price_run_date_kst", now_kst.date().isoformat())
+    save_setting(
+      "last_watchlist_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_watchlist_price_run_status", "success")
+  except Exception:
+    save_setting(
+      "last_watchlist_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_watchlist_price_run_status", "failed")
+    raise
+
+
 def main() -> None:
   settings = load_settings()
   now_kst = datetime.now(KST)
@@ -160,6 +232,7 @@ def main() -> None:
   print(f"KST now={now_kst.isoformat(timespec='seconds')} reason={reason}")
   save_setting("last_scheduler_check_at", now_kst.isoformat(timespec="seconds"))
   save_setting("last_scheduler_check_reason", reason)
+  run_watchlist_price_schedule(settings, now_kst)
 
   if not should_run:
     return
@@ -176,17 +249,6 @@ def main() -> None:
     selection = settings.get("scheduled_selection", "all")
     if selection not in ["all", "missing", "existing"]:
       selection = "all"
-
-    if bool_setting(settings, "watchlist_price_enabled"):
-      run_command(
-        [
-          sys.executable,
-          "batch/update_watchlist_prices.py",
-          "--market",
-          "ALL",
-        ]
-      )
-      commands_run += 1
 
     if bool_setting(settings, "company_master_enabled") and weekday == company_day:
       run_command([sys.executable, "batch/update_companies.py", "--market", "ALL"])

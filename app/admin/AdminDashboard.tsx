@@ -815,7 +815,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </label>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-950 md:grid-cols-3">
+          <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-950 md:grid-cols-4">
             <div>
               <p className="font-semibold text-slate-700 dark:text-slate-200">
                 마지막 스케줄 체크
@@ -840,6 +840,17 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 {status.schedulerMeta.lastScheduledRunDateKst || "-"}{" "}
                 {status.schedulerMeta.lastScheduledRunStatus
                   ? `(${status.schedulerMeta.lastScheduledRunStatus})`
+                  : ""}
+                </p>
+            </div>
+            <div>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                마지막 가격 갱신
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">
+                {status.schedulerMeta.lastWatchlistPriceRunDateKst || "-"}{" "}
+                {status.schedulerMeta.lastWatchlistPriceRunStatus
+                  ? `(${status.schedulerMeta.lastWatchlistPriceRunStatus})`
                   : ""}
               </p>
             </div>
@@ -962,7 +973,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               자동 배치 대상
               <select
@@ -990,6 +1001,17 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 className="h-4 w-4"
               />
               관심종목 가격/시총 매일 갱신
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              가격 갱신 시간(KST)
+              <input
+                type="time"
+                value={settings.watchlistPriceTimeKst}
+                onChange={(event) =>
+                  updateSetting("watchlistPriceTimeKst", event.target.value)
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
             </label>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               관심종목 재집계 스킵 기준(시간)

@@ -12,6 +12,7 @@ interface WatchlistStock {
   added_at: string;
   price?: number | null;
   market_cap?: number | null;
+  shares_outstanding?: number | null;
   equity?: number | null;
   net_income?: number | null;
   operating_income?: number | null;
@@ -41,6 +42,14 @@ const formatCurrency = (
 const formatMetric = (value: number | null | undefined, suffix = "") => {
   if (value === null || value === undefined) return "-";
   return `${value.toFixed(2)}${suffix}`;
+};
+
+const formatShares = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "-";
+
+  return `${new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: value >= 1_000_000 ? 0 : 2,
+  }).format(value)}주`;
 };
 
 const parseDateValue = (value: string | null | undefined) => {
@@ -311,6 +320,14 @@ export default function WatchlistPage() {
                         </span>
                         <span className="font-semibold text-slate-900 dark:text-white">
                           {formatCurrency(stock.price, stock.country, false)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600 dark:text-slate-400">
+                          주식수
+                        </span>
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {formatShares(stock.shares_outstanding)}
                         </span>
                       </div>
                       <div className="flex justify-between gap-3">

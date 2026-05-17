@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from db import execute
 
 KST = ZoneInfo("Asia/Seoul")
+OUTPUT_TAIL_LIMIT = 3000
 DEFAULTS = {
   "schedule_enabled": "true",
   "schedule_time_kst": "03:00",
@@ -104,8 +105,8 @@ def should_run_now(settings: dict[str, str], now_kst: datetime) -> tuple[bool, s
     return False, f"already ran for {today}"
 
   if delta_minutes > window:
-    return True, (
-      f"late schedule execution target={target.strftime('%H:%M')} "
+    return False, (
+      f"missed schedule window target={target.strftime('%H:%M')} "
       f"delay={int(delta_minutes)}m window={window}m"
     )
 
@@ -142,9 +143,32 @@ def should_run_watchlist_price_now(
   )
 
 
+def tail_text(value: str) -> str:
+  text = value.strip()
+  if len(text) <= OUTPUT_TAIL_LIMIT:
+    return text
+  return text[-OUTPUT_TAIL_LIMIT:]
+
+
 def run_command(command: list[str]) -> None:
   print("+", " ".join(command), flush=True)
-  subprocess.run(command, check=True)
+  result = subprocess.run(command, check=False, capture_output=True, text=True)
+  if result.stdout:
+    print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", flush=True)
+  if result.stderr:
+    print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", flush=True)
+  if result.returncode != 0:
+    details = "\n".join(
+      part
+      for part in [
+        f"command={' '.join(command)}",
+        f"exit_code={result.returncode}",
+        f"stdout={tail_text(result.stdout)}" if result.stdout else "",
+        f"stderr={tail_text(result.stderr)}" if result.stderr else "",
+      ]
+      if part
+    )
+    raise RuntimeError(details)
 
 
 def append_limit(command: list[str], limit: int) -> list[str]:
@@ -154,7 +178,7 @@ def append_limit(command: list[str], limit: int) -> list[str]:
 
 
 def insert_run(status: str, message: str, now_kst: datetime) -> str:
-  run_id = f"scheduled-{now_kst.strftime('%Y%m%d')}"
+  run_id = f"scheduled-{now_kst.strftime('%Y%m%d-%H%M%S')}"
   execute(
     """INSERT INTO batch_runs
        (id, job_name, market, shard_index, shard_count, status, started_at, error_sample)
@@ -168,7 +192,14 @@ def insert_run(status: str, message: str, now_kst: datetime) -> str:
   return run_id
 
 
-def complete_run(run_id: str, status: str, processed: int, message: str) -> None:
+def complete_run(
+  run_id: str,
+  status: str,
+  processed: int,
+  succeeded: int,
+  failed: int,
+  message: str,
+) -> None:
   execute(
     """UPDATE batch_runs
        SET status = ?, completed_at = ?, processed = ?, succeeded = ?,
@@ -178,12 +209,23 @@ def complete_run(run_id: str, status: str, processed: int, message: str) -> None
       status,
       now_text(),
       processed,
-      processed if status == "success" else 0,
-      0 if status == "success" else 1,
+      succeeded,
+      failed,
       message,
       run_id,
     ],
   )
+
+
+def run_scheduled_command(command: list[str], errors: list[str]) -> bool:
+  try:
+    run_command(command)
+    return True
+  except Exception as error:
+    message = str(error)
+    errors.append(message)
+    print(f"[scheduled command failed]\n{message}", flush=True)
+    return False
 
 
 def run_watchlist_price_schedule(settings: dict[str, str], now_kst: datetime) -> None:
@@ -216,13 +258,13 @@ def run_watchlist_price_schedule(settings: dict[str, str], now_kst: datetime) ->
       datetime.now(KST).isoformat(timespec="seconds"),
     )
     save_setting("last_watchlist_price_run_status", "success")
-  except Exception:
+  except Exception as error:
+    print(f"[watchlist price schedule failed] {error}", flush=True)
     save_setting(
       "last_watchlist_price_run_completed_at",
       datetime.now(KST).isoformat(timespec="seconds"),
     )
     save_setting("last_watchlist_price_run_status", "failed")
-    raise
 
 
 def main() -> None:
@@ -240,61 +282,68 @@ def main() -> None:
   run_id = insert_run("running", reason, now_kst)
   save_setting("last_scheduled_run_started_at", now_kst.isoformat(timespec="seconds"))
   save_setting("last_scheduled_run_status", "running")
-  commands_run = 0
+  processed = 0
+  succeeded = 0
+  failed = 0
+  errors: list[str] = []
 
-  try:
-    weekday = now_kst.isoweekday()
-    company_day = int_setting(settings, "company_master_day", 7, 1, 7)
-    kr_day = int_setting(settings, "kr_day", 7, 1, 7)
-    selection = settings.get("scheduled_selection", "all")
-    if selection not in ["all", "missing", "existing"]:
-      selection = "all"
+  weekday = now_kst.isoweekday()
+  company_day = int_setting(settings, "company_master_day", 7, 1, 7)
+  kr_day = int_setting(settings, "kr_day", 7, 1, 7)
+  selection = settings.get("scheduled_selection", "all")
+  if selection not in ["all", "missing", "existing"]:
+    selection = "all"
 
-    if bool_setting(settings, "company_master_enabled") and weekday == company_day:
-      run_command([sys.executable, "batch/update_companies.py", "--market", "ALL"])
-      commands_run += 1
+  def run_and_count(command: list[str]) -> None:
+    nonlocal processed, succeeded, failed
+    processed += 1
+    if run_scheduled_command(command, errors):
+      succeeded += 1
+    else:
+      failed += 1
 
-    if bool_setting(settings, "kr_enabled") and weekday == kr_day:
-      kr_limit = int_setting(settings, "kr_limit", 0, 0, 5000)
-      command = [
-        sys.executable,
-        "batch/update_metrics.py",
-        "--market",
-        "KR",
-        "--selection",
-        selection,
-      ]
-      run_command(append_limit(command, kr_limit))
-      commands_run += 1
+  if bool_setting(settings, "company_master_enabled") and weekday == company_day:
+    run_and_count([sys.executable, "batch/update_companies.py", "--market", "ALL"])
 
-    if bool_setting(settings, "us_enabled"):
-      shard_count = int_setting(settings, "us_shard_count", 7, 1, 31)
-      us_limit = int_setting(settings, "us_limit", 1000, 0, 5000)
-      shard_index = now_kst.date().toordinal() % shard_count
-      command = [
-        sys.executable,
-        "batch/update_metrics.py",
-        "--market",
-        "US",
-        "--shard-index",
-        str(shard_index),
-        "--shard-count",
-        str(shard_count),
-        "--selection",
-        selection,
-      ]
-      run_command(append_limit(command, us_limit))
-      commands_run += 1
+  if bool_setting(settings, "kr_enabled") and weekday == kr_day:
+    kr_limit = int_setting(settings, "kr_limit", 0, 0, 5000)
+    command = [
+      sys.executable,
+      "batch/update_metrics.py",
+      "--market",
+      "KR",
+      "--selection",
+      selection,
+    ]
+    run_and_count(append_limit(command, kr_limit))
 
-    save_setting("last_scheduled_run_date_kst", now_kst.date().isoformat())
-    save_setting("last_scheduled_run_completed_at", datetime.now(KST).isoformat(timespec="seconds"))
-    save_setting("last_scheduled_run_status", "success")
-    complete_run(run_id, "success", commands_run, "scheduled batch completed")
-  except Exception as error:
-    save_setting("last_scheduled_run_completed_at", datetime.now(KST).isoformat(timespec="seconds"))
-    save_setting("last_scheduled_run_status", "failed")
-    complete_run(run_id, "failed", commands_run, str(error))
-    raise
+  if bool_setting(settings, "us_enabled"):
+    shard_count = int_setting(settings, "us_shard_count", 7, 1, 31)
+    us_limit = int_setting(settings, "us_limit", 1000, 0, 5000)
+    shard_index = now_kst.date().toordinal() % shard_count
+    command = [
+      sys.executable,
+      "batch/update_metrics.py",
+      "--market",
+      "US",
+      "--shard-index",
+      str(shard_index),
+      "--shard-count",
+      str(shard_count),
+      "--selection",
+      selection,
+    ]
+    run_and_count(append_limit(command, us_limit))
+
+  status = "success" if failed == 0 else "partial" if succeeded > 0 else "failed"
+  message = "scheduled batch completed" if not errors else "\n\n".join(errors[:10])
+  save_setting("last_scheduled_run_date_kst", now_kst.date().isoformat())
+  save_setting(
+    "last_scheduled_run_completed_at",
+    datetime.now(KST).isoformat(timespec="seconds"),
+  )
+  save_setting("last_scheduled_run_status", status)
+  complete_run(run_id, status, processed, succeeded, failed, message)
 
 
 if __name__ == "__main__":

@@ -41,6 +41,17 @@ def fetch_kr_companies() -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
     timeout=30,
   )
   response.raise_for_status()
+  if not zipfile.is_zipfile(io.BytesIO(response.content)):
+    detail = response.text[:500].replace("\n", " ").strip()
+    try:
+      root = ET.fromstring(response.content)
+      status = root.findtext("status") or root.findtext(".//status") or ""
+      message = root.findtext("message") or root.findtext(".//message") or ""
+      if status or message:
+        detail = f"status={status} message={message}"
+    except ET.ParseError:
+      pass
+    raise RuntimeError(f"DART corpCode.xml did not return a zip file: {detail}")
 
   timestamp = now_text()
   corp_rows: list[tuple[Any, ...]] = []

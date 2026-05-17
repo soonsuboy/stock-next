@@ -802,7 +802,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               />
             </label>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              지연 경고 기준(분)
+              실행 허용 시간(분)
               <input
                 type="number"
                 min={5}
@@ -1045,9 +1045,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               {settingsSaving ? "저장 중..." : "배치 설정 저장"}
             </button>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              GitHub Actions는 15분마다 깨어나며, GitHub가 늦게 실행해도
-              설정 시간 이후 그날 첫 실행이면 배치를 시작합니다. 기준보다 늦으면
-              스케줄러 로그에 late로 남깁니다.
+              GitHub Actions는 15분마다 깨어나며, 설정 시간부터 실행 허용 시간 안에
+              도착한 첫 실행만 자동 배치를 시작합니다. 허용 시간을 지나면 그날 자동
+              배치는 건너뛰고 다음 날 다시 확인합니다.
             </p>
           </div>
 

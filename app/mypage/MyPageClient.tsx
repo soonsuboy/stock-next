@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface MyPageClientProps {
   userName: string | null;
   userEmail: string | null;
   locked: boolean;
+  initialStatus: DiscussionAccessStatus;
 }
 
 interface DiscussionAccessStatus {
@@ -27,36 +28,16 @@ export default function MyPageClient({
   userName,
   userEmail,
   locked,
+  initialStatus,
 }: MyPageClientProps) {
-  const [status, setStatus] = useState<DiscussionAccessStatus | null>(null);
+  const [status, setStatus] = useState<DiscussionAccessStatus | null>(
+    initialStatus
+  );
   const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(true);
+  const loading = false;
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-
-  const loadStatus = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch("/api/me/discussion-access");
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "마이페이지 정보를 불러오지 못했습니다.");
-      }
-      setStatus(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "마이페이지 조회 중 오류 발생");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadStatus();
-    });
-  }, []);
 
   const submitCode = async () => {
     setSaving(true);

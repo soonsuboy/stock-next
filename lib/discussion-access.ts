@@ -5,6 +5,7 @@ import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { ensureBatchSettings } from "@/lib/batch-settings";
 
 const ACCESS_CODE_KEY = "discussion_access_code_hash";
+let discussionAccessTablesReady: Promise<void> | null = null;
 
 export interface DiscussionAccessCodeSummary {
   id: number;
@@ -50,7 +51,7 @@ function secureEqual(left: string, right: string) {
   );
 }
 
-export async function ensureDiscussionAccessTables() {
+async function ensureDiscussionAccessTablesUncached() {
   await ensureBatchSettings();
   await db.execute(
     `CREATE TABLE IF NOT EXISTS discussion_access_codes (
@@ -93,6 +94,11 @@ export async function ensureDiscussionAccessTables() {
     "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_expires ON user_discussion_access(expires_at)"
   );
   await migrateLegacyAccessCode();
+}
+
+export async function ensureDiscussionAccessTables() {
+  discussionAccessTablesReady ??= ensureDiscussionAccessTablesUncached();
+  return discussionAccessTablesReady;
 }
 
 async function getStoredAccessCodeHash() {
@@ -265,12 +271,15 @@ export async function grantDiscussionAccess(
 }
 
 export async function getDiscussionAccessStatus(userId: string | null) {
-  const configured = await isDiscussionAccessCodeConfigured();
+  await ensureDiscussionAccessTables();
+  const configuredResult = await db.execute(
+    "SELECT COUNT(*) AS count FROM discussion_access_codes WHERE active = 1"
+  );
+  const configured = Number(configuredResult.rows[0]?.count || 0) > 0;
   if (!userId) {
     return { configured, hasAccess: false, grantedAt: null, expiresAt: null };
   }
 
-  await ensureDiscussionAccessTables();
   const result = await db.execute({
     sql: `SELECT
             a.code_id,

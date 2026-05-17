@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import AdminDashboard from "@/app/admin/AdminDashboard";
-import { getAdminUser, isAdminConfigured } from "@/lib/admin";
+import { isAdminConfigured, isAdminEmail } from "@/lib/admin";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function AdminPage() {
@@ -10,8 +10,7 @@ export default async function AdminPage() {
     redirect("/login");
   }
 
-  const adminUser = await getAdminUser();
-  if (!adminUser) {
+  if (!isAdminEmail(currentUser.email)) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">

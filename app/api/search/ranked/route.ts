@@ -34,13 +34,7 @@ function parseLimit(value: string | null) {
 async function loadRanked(country: Country, sort: SortKey, limit: number) {
   const sortRule = sortColumns[sort];
   const result = await db.execute({
-    sql: `WITH latest AS (
-            SELECT code, country, MAX(snapshot_date) AS snapshot_date
-            FROM metrics_history
-            WHERE country = ?
-            GROUP BY code, country
-          )
-          SELECT
+    sql: `SELECT
             c.code,
             c.name,
             c.market,
@@ -53,14 +47,16 @@ async function loadRanked(country: Country, sort: SortKey, limit: number) {
             m.per,
             m.pbr,
             m.created_at AS collected_at
-          FROM latest l
-          JOIN metrics_history m
-            ON m.code = l.code
-           AND m.country = l.country
-           AND m.snapshot_date = l.snapshot_date
+          FROM metrics_history m
           JOIN companies c
             ON c.code = m.code AND c.country = m.country
-          WHERE ${sortRule.column} IS NOT NULL
+          WHERE m.country = ?
+            AND m.snapshot_date = (
+              SELECT MAX(m2.snapshot_date)
+              FROM metrics_history m2
+              WHERE m2.code = m.code AND m2.country = m.country
+            )
+            AND ${sortRule.column} IS NOT NULL
           ORDER BY ${sortRule.column} ${sortRule.direction}, c.name
           LIMIT ?`,
     args: [country, limit],

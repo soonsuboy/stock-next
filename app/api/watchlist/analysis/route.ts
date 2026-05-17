@@ -8,12 +8,7 @@ export async function GET() {
 
   try {
     const result = await db.execute({
-      sql: `WITH latest AS (
-              SELECT code, country, MAX(snapshot_date) AS snapshot_date
-              FROM metrics_history
-              GROUP BY code, country
-            )
-            SELECT
+      sql: `SELECT
               c.code,
               c.name,
               c.country,
@@ -26,12 +21,14 @@ export async function GET() {
             FROM user_watchlist uw
             JOIN companies c
               ON uw.code = c.code AND uw.country = c.country
-            LEFT JOIN latest l
-              ON c.code = l.code AND c.country = l.country
             LEFT JOIN metrics_history m
-              ON m.code = l.code
-             AND m.country = l.country
-             AND m.snapshot_date = l.snapshot_date
+              ON m.code = c.code
+             AND m.country = c.country
+             AND m.snapshot_date = (
+               SELECT MAX(m2.snapshot_date)
+               FROM metrics_history m2
+               WHERE m2.code = c.code AND m2.country = c.country
+             )
             WHERE uw.user_id = ?
             ORDER BY uw.added_at DESC`,
       args: [user.id],

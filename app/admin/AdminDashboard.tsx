@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminBatchStatus } from "@/lib/admin-data";
 
 interface AdminDashboardProps {
@@ -149,6 +149,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [telegramSummaryDates, setTelegramSummaryDates] = useState<
     TelegramSummaryDate[]
   >([]);
+  const telegramTabLoadedRef = useRef(false);
   const [telegramDatesLoading, setTelegramDatesLoading] = useState(false);
   const [telegramRanking, setTelegramRanking] =
     useState<TelegramRanking | null>(null);
@@ -245,12 +246,15 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   };
 
   useEffect(() => {
+    if (activeTab !== "telegram" || telegramTabLoadedRef.current) return;
+
+    telegramTabLoadedRef.current = true;
     queueMicrotask(() => {
       void refreshTelegramChats();
       void refreshTelegramSummaryDates();
       void refreshDiscussionCodes();
     });
-  }, []);
+  }, [activeTab]);
 
   const toggleTelegramChat = (chatId: string) => {
     setTelegramChats((current) =>

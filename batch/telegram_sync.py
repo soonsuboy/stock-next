@@ -6,6 +6,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,22 @@ from telethon.sessions import StringSession
 from db import execute, execute_many, query_one
 
 KST = ZoneInfo("Asia/Seoul")
+
+
+def load_local_env() -> None:
+  env_path = Path(__file__).resolve().parents[1] / ".env.local"
+  if not env_path.exists():
+    return
+
+  for line in env_path.read_text(encoding="utf-8").splitlines():
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+      continue
+    key, value = stripped.split("=", 1)
+    key = key.strip()
+    value = value.strip().strip('"').strip("'")
+    if key and key not in os.environ:
+      os.environ[key] = value
 
 
 def now_text() -> str:
@@ -607,6 +624,7 @@ async def run_mode(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+  load_local_env()
   parser = argparse.ArgumentParser()
   parser.add_argument(
     "--mode",

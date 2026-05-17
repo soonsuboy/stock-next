@@ -810,6 +810,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             <p className="text-xs text-slate-500 dark:text-slate-400">
               GitHub Secrets에 TELEGRAM_API_ID, TELEGRAM_API_HASH,
               TELEGRAM_SESSION_STRING, OPENAI_API_KEY가 필요합니다.
+              처음 수집할 때는 최근 대화 조회 범위를 24시간 이상으로 두는 것을 권장합니다.
             </p>
           </div>
 

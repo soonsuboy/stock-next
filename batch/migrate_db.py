@@ -19,7 +19,7 @@ DEFAULT_BATCH_SETTINGS = {
   "watchlist_skip_recent_hours": "24",
   "watchlist_price_enabled": "true",
   "telegram_enabled": "false",
-  "telegram_collect_hours_back": "2",
+  "telegram_collect_hours_back": "24",
   "telegram_message_limit": "200",
   "telegram_media_enabled": "true",
   "telegram_media_max_bytes": "750000",

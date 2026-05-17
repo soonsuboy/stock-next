@@ -594,7 +594,7 @@ async def run_mode(args: argparse.Namespace) -> int:
       print(f"Telegram sync already ran for {hour_key}")
       return 0
     processed, dates = await collect_messages(
-      int_value(settings.get("telegram_collect_hours_back"), 2, 1, 168),
+      int_value(settings.get("telegram_collect_hours_back"), 24, 1, 168),
       int_value(settings.get("telegram_message_limit"), 200, 10, 1000),
       bool_value(settings.get("telegram_media_enabled"), True),
       int_value(settings.get("telegram_media_max_bytes"), 750000, 0, 3000000),
@@ -608,11 +608,23 @@ async def run_mode(args: argparse.Namespace) -> int:
   if args.mode == "dialogs":
     return await sync_dialogs()
   if args.mode == "collect":
+    hours_back = args.hours_back
+    if hours_back is None:
+      hours_back = int_value(settings.get("telegram_collect_hours_back"), 24, 1, 168)
+    limit = args.limit
+    if limit is None:
+      limit = int_value(settings.get("telegram_message_limit"), 200, 10, 1000)
+    media = args.media
+    if media is None:
+      media = bool_value(settings.get("telegram_media_enabled"), True)
+    media_max_bytes = args.media_max_bytes
+    if media_max_bytes is None:
+      media_max_bytes = int_value(settings.get("telegram_media_max_bytes"), 750000, 0, 3000000)
     processed, dates = await collect_messages(
-      args.hours_back,
-      args.limit,
-      args.media,
-      args.media_max_bytes,
+      hours_back,
+      limit,
+      media,
+      media_max_bytes,
     )
     if args.summarize:
       for date_key in dates or [today_key()]:
@@ -632,10 +644,10 @@ def main() -> None:
     required=True,
   )
   parser.add_argument("--date")
-  parser.add_argument("--hours-back", type=int, default=2)
-  parser.add_argument("--limit", type=int, default=200)
-  parser.add_argument("--media", action=argparse.BooleanOptionalAction, default=True)
-  parser.add_argument("--media-max-bytes", type=int, default=750000)
+  parser.add_argument("--hours-back", type=int)
+  parser.add_argument("--limit", type=int)
+  parser.add_argument("--media", action=argparse.BooleanOptionalAction)
+  parser.add_argument("--media-max-bytes", type=int)
   parser.add_argument("--summarize", action="store_true")
   parser.add_argument("--run-id")
   args = parser.parse_args()

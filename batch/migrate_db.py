@@ -18,6 +18,13 @@ DEFAULT_BATCH_SETTINGS = {
   "scheduled_selection": "all",
   "watchlist_skip_recent_hours": "24",
   "watchlist_price_enabled": "true",
+  "telegram_enabled": "false",
+  "telegram_collect_hours_back": "2",
+  "telegram_message_limit": "200",
+  "telegram_media_enabled": "true",
+  "telegram_media_max_bytes": "750000",
+  "telegram_summary_enabled": "true",
+  "telegram_last_collect_hour_kst": "",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
@@ -229,6 +236,60 @@ def migrate(clear_legacy_watchlist: bool) -> None:
          PRIMARY KEY(run_id, code, country)
        )"""
   )
+  execute(
+    """CREATE TABLE IF NOT EXISTS telegram_chats (
+         chat_id         TEXT PRIMARY KEY,
+         title           TEXT NOT NULL,
+         username        TEXT,
+         chat_type       TEXT,
+         enabled         INTEGER DEFAULT 0,
+         last_message_id INTEGER DEFAULT 0,
+         updated_at      TEXT
+       )"""
+  )
+  execute(
+    """CREATE TABLE IF NOT EXISTS telegram_messages (
+         chat_id      TEXT NOT NULL,
+         message_id   INTEGER NOT NULL,
+         message_date TEXT NOT NULL,
+         date_key     TEXT NOT NULL,
+         hour_key     TEXT NOT NULL,
+         sender_name  TEXT,
+         text         TEXT,
+         has_media    INTEGER DEFAULT 0,
+         created_at   TEXT,
+         PRIMARY KEY(chat_id, message_id),
+         FOREIGN KEY(chat_id) REFERENCES telegram_chats(chat_id)
+       )"""
+  )
+  execute(
+    """CREATE TABLE IF NOT EXISTS telegram_media (
+         chat_id     TEXT NOT NULL,
+         message_id  INTEGER NOT NULL,
+         media_index INTEGER NOT NULL,
+         mime_type   TEXT,
+         file_name   TEXT,
+         size_bytes  INTEGER,
+         data_base64 TEXT,
+         created_at  TEXT,
+         PRIMARY KEY(chat_id, message_id, media_index)
+       )"""
+  )
+  execute(
+    """CREATE TABLE IF NOT EXISTS telegram_daily_summaries (
+         chat_id          TEXT NOT NULL,
+         summary_date     TEXT NOT NULL,
+         summary          TEXT,
+         positive_stocks  TEXT,
+         negative_stocks  TEXT,
+         mentioned_stocks TEXT,
+         model            TEXT,
+         status           TEXT,
+         error            TEXT,
+         updated_at       TEXT,
+         PRIMARY KEY(chat_id, summary_date)
+       )"""
+  )
 
   for statement in [
     "CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)",
@@ -241,6 +302,11 @@ def migrate(clear_legacy_watchlist: bool) -> None:
     "CREATE INDEX IF NOT EXISTS idx_batch_runs_started ON batch_runs(started_at)",
     "CREATE INDEX IF NOT EXISTS idx_batch_runs_completed ON batch_runs(completed_at)",
     "CREATE INDEX IF NOT EXISTS idx_batch_items_run ON batch_run_items(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_chats_enabled ON telegram_chats(enabled)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_messages_date ON telegram_messages(date_key, chat_id)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_messages_hour ON telegram_messages(hour_key, chat_id)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_media_message ON telegram_media(chat_id, message_id)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_summaries_date ON telegram_daily_summaries(summary_date)",
   ]:
     execute(statement)
 

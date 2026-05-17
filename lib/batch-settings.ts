@@ -17,6 +17,12 @@ export interface BatchSettings {
   scheduledSelection: MetricSelection;
   watchlistSkipRecentHours: number;
   watchlistPriceEnabled: boolean;
+  telegramEnabled: boolean;
+  telegramCollectHoursBack: number;
+  telegramMessageLimit: number;
+  telegramMediaEnabled: boolean;
+  telegramMediaMaxBytes: number;
+  telegramSummaryEnabled: boolean;
 }
 
 export interface BatchSchedulerMeta {
@@ -43,6 +49,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   scheduled_selection: "all",
   watchlist_skip_recent_hours: "24",
   watchlist_price_enabled: "true",
+  telegram_enabled: "false",
+  telegram_collect_hours_back: "2",
+  telegram_message_limit: "200",
+  telegram_media_enabled: "true",
+  telegram_media_max_bytes: "750000",
+  telegram_summary_enabled: "true",
+  telegram_last_collect_hour_kst: "",
   last_scheduled_run_date_kst: "",
   last_scheduler_check_at: "",
   last_scheduler_check_reason: "",
@@ -95,6 +108,12 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
     scheduled_selection: settings.scheduledSelection,
     watchlist_skip_recent_hours: String(settings.watchlistSkipRecentHours),
     watchlist_price_enabled: String(settings.watchlistPriceEnabled),
+    telegram_enabled: String(settings.telegramEnabled),
+    telegram_collect_hours_back: String(settings.telegramCollectHoursBack),
+    telegram_message_limit: String(settings.telegramMessageLimit),
+    telegram_media_enabled: String(settings.telegramMediaEnabled),
+    telegram_media_max_bytes: String(settings.telegramMediaMaxBytes),
+    telegram_summary_enabled: String(settings.telegramSummaryEnabled),
   };
 }
 
@@ -124,6 +143,22 @@ function parseSettings(values: Record<string, string>): BatchSettings {
       168
     ),
     watchlistPriceEnabled: parseBoolean(values.watchlist_price_enabled, true),
+    telegramEnabled: parseBoolean(values.telegram_enabled, false),
+    telegramCollectHoursBack: parseInteger(
+      values.telegram_collect_hours_back,
+      2,
+      1,
+      168
+    ),
+    telegramMessageLimit: parseInteger(values.telegram_message_limit, 200, 10, 1000),
+    telegramMediaEnabled: parseBoolean(values.telegram_media_enabled, true),
+    telegramMediaMaxBytes: parseInteger(
+      values.telegram_media_max_bytes,
+      750000,
+      0,
+      3000000
+    ),
+    telegramSummaryEnabled: parseBoolean(values.telegram_summary_enabled, true),
   };
 }
 
@@ -214,6 +249,12 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     scheduled_selection: String(source.scheduledSelection ?? "all"),
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
     watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
+    telegram_enabled: String(source.telegramEnabled ?? "false"),
+    telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "2"),
+    telegram_message_limit: String(source.telegramMessageLimit ?? "200"),
+    telegram_media_enabled: String(source.telegramMediaEnabled ?? "true"),
+    telegram_media_max_bytes: String(source.telegramMediaMaxBytes ?? "750000"),
+    telegram_summary_enabled: String(source.telegramSummaryEnabled ?? "true"),
   });
 }
 

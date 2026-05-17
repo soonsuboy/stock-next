@@ -11,6 +11,16 @@ type Market = "KR" | "US";
 type Selection = "missing" | "existing" | "incomplete";
 type BatchSettings = AdminBatchStatus["settings"];
 
+interface TelegramChat {
+  chatId: string;
+  title: string;
+  username: string | null;
+  chatType: string | null;
+  enabled: boolean;
+  lastMessageId: number;
+  updatedAt: string | null;
+}
+
 const statusLabels: Record<string, string> = {
   requested: "요청됨",
   success: "성공",
@@ -58,6 +68,11 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsError, setSettingsError] = useState("");
+  const [telegramChats, setTelegramChats] = useState<TelegramChat[]>([]);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramSaving, setTelegramSaving] = useState(false);
+  const [telegramMessage, setTelegramMessage] = useState("");
+  const [telegramError, setTelegramError] = useState("");
 
   const maxLimit = status?.maxManualLimit ?? 500;
   const selectedCoverage = useMemo(
@@ -90,6 +105,97 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       });
     }
   }, [initialStatus]);
+
+  const refreshTelegramChats = async () => {
+    setTelegramLoading(true);
+    setTelegramError("");
+    try {
+      const response = await fetch("/api/admin/telegram/chats");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "텔레그램 채팅방 조회 실패");
+      }
+      setTelegramChats(data.chats || []);
+    } catch (err) {
+      setTelegramError(
+        err instanceof Error ? err.message : "텔레그램 채팅방 조회 중 오류 발생"
+      );
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void refreshTelegramChats();
+    });
+  }, []);
+
+  const toggleTelegramChat = (chatId: string) => {
+    setTelegramChats((current) =>
+      current.map((chat) =>
+        chat.chatId === chatId ? { ...chat, enabled: !chat.enabled } : chat
+      )
+    );
+  };
+
+  const saveTelegramChats = async () => {
+    setTelegramSaving(true);
+    setTelegramMessage("");
+    setTelegramError("");
+    try {
+      const response = await fetch("/api/admin/telegram/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabledChatIds: telegramChats
+            .filter((chat) => chat.enabled)
+            .map((chat) => chat.chatId),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "텔레그램 채팅방 저장 실패");
+      }
+      setTelegramChats(data.chats || []);
+      setTelegramMessage("텔레그램 채팅방 설정을 저장했습니다.");
+    } catch (err) {
+      setTelegramError(
+        err instanceof Error ? err.message : "텔레그램 채팅방 저장 중 오류 발생"
+      );
+    } finally {
+      setTelegramSaving(false);
+    }
+  };
+
+  const triggerTelegram = async (
+    mode: "telegram_dialogs" | "telegram_collect" | "telegram_summarize"
+  ) => {
+    setTelegramSaving(true);
+    setTelegramMessage("");
+    setTelegramError("");
+    try {
+      const response = await fetch("/api/admin/telegram/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "텔레그램 배치 요청 실패");
+      }
+      setTelegramMessage(
+        "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
+      );
+      await refreshStatus();
+    } catch (err) {
+      setTelegramError(
+        err instanceof Error ? err.message : "텔레그램 배치 요청 중 오류 발생"
+      );
+    } finally {
+      setTelegramSaving(false);
+    }
+  };
 
   const updateSetting = <K extends keyof BatchSettings>(
     key: K,
@@ -528,6 +634,193 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           {settingsError && (
             <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
               {settingsError}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
+          텔레그램 종목 토론 설정
+        </h2>
+        <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.telegramEnabled}
+                onChange={(event) =>
+                  updateSetting("telegramEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              매시간 텔레그램 수집
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              최근 대화 조회 범위(시간)
+              <input
+                type="number"
+                min={1}
+                max={168}
+                value={settings.telegramCollectHoursBack}
+                onChange={(event) =>
+                  updateSetting(
+                    "telegramCollectHoursBack",
+                    Number(event.target.value) || 2
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              방별 최대 메시지 수
+              <input
+                type="number"
+                min={10}
+                max={1000}
+                value={settings.telegramMessageLimit}
+                onChange={(event) =>
+                  updateSetting(
+                    "telegramMessageLimit",
+                    Number(event.target.value) || 200
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.telegramMediaEnabled}
+                onChange={(event) =>
+                  updateSetting("telegramMediaEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              이미지 저장
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              이미지 최대 크기(bytes)
+              <input
+                type="number"
+                min={0}
+                max={3000000}
+                value={settings.telegramMediaMaxBytes}
+                onChange={(event) =>
+                  updateSetting(
+                    "telegramMediaMaxBytes",
+                    Number(event.target.value) || 0
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.telegramSummaryEnabled}
+                onChange={(event) =>
+                  updateSetting("telegramSummaryEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              AI 날짜별 요약
+            </label>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={telegramSaving}
+              onClick={() => triggerTelegram("telegram_dialogs")}
+              className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              채팅방 목록 새로고침
+            </button>
+            <button
+              type="button"
+              disabled={telegramSaving}
+              onClick={() => triggerTelegram("telegram_collect")}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
+            >
+              대화 수동 수집
+            </button>
+            <button
+              type="button"
+              disabled={telegramSaving}
+              onClick={() => triggerTelegram("telegram_summarize")}
+              className="rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              오늘 대화 AI 요약
+            </button>
+            <button
+              type="button"
+              disabled={telegramLoading}
+              onClick={refreshTelegramChats}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              목록 다시 읽기
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-lg border border-slate-200 dark:border-slate-800">
+            <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+              사용할 채팅방 선택
+            </div>
+            <div className="max-h-72 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800">
+              {telegramChats.length === 0 ? (
+                <div className="p-4 text-sm text-slate-500">
+                  아직 저장된 채팅방 목록이 없습니다. `채팅방 목록 새로고침` 배치를 먼저 실행하세요.
+                </div>
+              ) : (
+                telegramChats.map((chat) => (
+                  <label
+                    key={chat.chatId}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
+                    <span>
+                      <span className="font-semibold text-slate-900 dark:text-white">
+                        {chat.title}
+                      </span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {chat.chatType || "chat"} · {chat.username || chat.chatId}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={chat.enabled}
+                      onChange={() => toggleTelegramChat(chat.chatId)}
+                      className="h-4 w-4"
+                    />
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={telegramSaving}
+              onClick={saveTelegramChats}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              채팅방 선택 저장
+            </button>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              GitHub Secrets에 TELEGRAM_API_ID, TELEGRAM_API_HASH,
+              TELEGRAM_SESSION_STRING, OPENAI_API_KEY가 필요합니다.
+            </p>
+          </div>
+
+          {telegramMessage && (
+            <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">
+              {telegramMessage}
+            </div>
+          )}
+          {telegramError && (
+            <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {telegramError}
             </div>
           )}
         </div>

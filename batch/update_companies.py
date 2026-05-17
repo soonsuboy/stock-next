@@ -22,6 +22,10 @@ def normalize_us_symbol(symbol: str) -> str:
   return symbol.strip().upper().replace(".", "-")
 
 
+def is_us_common_stock(name: str) -> bool:
+  return "common stock" in name.lower()
+
+
 def now_text() -> str:
   return datetime.now(KST).isoformat(timespec="seconds")
 
@@ -125,6 +129,8 @@ def fetch_us_companies() -> list[tuple[Any, ...]]:
       symbol = normalize_us_symbol(raw_symbol)
       name = (raw.get("Security Name") or "").strip()
       if not symbol or not name:
+        continue
+      if not is_us_common_stock(name):
         continue
       if raw.get("Test Issue") == "Y" or raw.get("ETF") == "Y":
         continue

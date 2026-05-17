@@ -58,6 +58,9 @@ export default async function RootLayout({
               <Link href="/analysis" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 분석
               </Link>
+              <Link href="/discussions" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                종목 토론
+              </Link>
               {isAdmin && (
                 <Link href="/admin" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                   관리자

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "companies, kr, us, watchlist_prices, or all"
+        description: "companies, kr, us, watchlist_prices, telegram_dialogs, telegram_collect, telegram_summarize, or all"
         required: true
         default: "all"
         type: choice
@@ -16,6 +16,9 @@ on:
           - kr
           - us
           - watchlist_prices
+          - telegram_dialogs
+          - telegram_collect
+          - telegram_summarize
           - all
       shard_index:
         description: "US shard index"
@@ -47,6 +50,10 @@ on:
         description: "Optional pre-created batch_runs id"
         required: false
         default: ""
+      telegram_date:
+        description: "Optional YYYY-MM-DD date for telegram_summarize"
+        required: false
+        default: ""
       dry_run:
         description: "Fetch and print without writing to Turso"
         required: false
@@ -62,6 +69,11 @@ jobs:
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TELEGRAM_SESSION_STRING: ${{ secrets.TELEGRAM_SESSION_STRING }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -80,6 +92,10 @@ jobs:
         if: github.event_name == 'schedule'
         run: python batch/run_scheduled.py
 
+      - name: Run scheduled telegram sync
+        if: github.event_name == 'schedule'
+        run: python batch/telegram_sync.py --mode scheduled
+
       - name: Run manual batch
         if: github.event_name == 'workflow_dispatch'
         shell: bash
@@ -92,6 +108,7 @@ jobs:
           codes="${{ inputs.codes }}"
           selection="${{ inputs.selection }}"
           request_id="${{ inputs.request_id }}"
+          telegram_date="${{ inputs.telegram_date }}"
           dry_run="${{ inputs.dry_run }}"
 
           company_extra=()
@@ -129,4 +146,28 @@ jobs:
           fi
           if [ "$mode" = "watchlist_prices" ] || [ "$mode" = "all" ]; then
             python batch/update_watchlist_prices.py --market ALL "${price_extra[@]}"
+          fi
+          if [ "$mode" = "telegram_dialogs" ]; then
+            telegram_extra=()
+            if [ -n "$request_id" ]; then
+              telegram_extra+=(--run-id "$request_id")
+            fi
+            python batch/telegram_sync.py --mode dialogs "${telegram_extra[@]}"
+          fi
+          if [ "$mode" = "telegram_collect" ]; then
+            telegram_extra=(--summarize)
+            if [ -n "$request_id" ]; then
+              telegram_extra+=(--run-id "$request_id")
+            fi
+            python batch/telegram_sync.py --mode collect "${telegram_extra[@]}"
+          fi
+          if [ "$mode" = "telegram_summarize" ]; then
+            telegram_extra=()
+            if [ -n "$request_id" ]; then
+              telegram_extra+=(--run-id "$request_id")
+            fi
+            if [ -n "$telegram_date" ]; then
+              telegram_extra+=(--date "$telegram_date")
+            fi
+            python batch/telegram_sync.py --mode summarize "${telegram_extra[@]}"
           fi

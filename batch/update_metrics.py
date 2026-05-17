@@ -161,10 +161,12 @@ def merge_financials(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[
 
 
 def load_companies(market: str) -> list[dict[str, Any]]:
+  common_stock_filter = "AND name LIKE '%Common Stock%'" if market == "US" else ""
   result = execute(
-    """SELECT code, country, name, market, currency, corp_code, cik
+    f"""SELECT code, country, name, market, currency, corp_code, cik
        FROM companies
        WHERE country = ?
+       {common_stock_filter}
        ORDER BY code""",
     [market],
   )

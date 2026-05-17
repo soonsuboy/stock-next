@@ -6,6 +6,7 @@ export const config = {
     "/search/:path*",
     "/watchlist/:path*",
     "/analysis/:path*",
+    "/discussions/:path*",
     "/admin/:path*",
   ],
 };

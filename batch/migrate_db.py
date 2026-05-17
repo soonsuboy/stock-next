@@ -1,6 +1,7 @@
 import argparse
 
 from db import execute, query_one
+from sector_mapping import infer_gics_sector
 
 
 DEFAULT_BATCH_SETTINGS = {
@@ -62,6 +63,9 @@ def ensure_column(table: str, column: str, definition: str) -> None:
 def create_companies() -> None:
   sql = table_sql("companies")
   if "PRIMARY KEY (code, country)" in sql:
+    ensure_column("companies", "gics_sector", "TEXT")
+    ensure_column("companies", "industry_name", "TEXT")
+    ensure_column("companies", "sector_source", "TEXT")
     return
 
   execute(
@@ -73,6 +77,9 @@ def create_companies() -> None:
          currency   TEXT,
          corp_code  TEXT,
          cik        TEXT,
+         gics_sector TEXT,
+         industry_name TEXT,
+         sector_source TEXT,
          source     TEXT,
          updated_at TEXT,
          PRIMARY KEY (code, country)
@@ -87,15 +94,22 @@ def create_companies() -> None:
       if "currency" in columns
       else f"CASE COALESCE({country_expr}, 'KR') WHEN 'KR' THEN 'KRW' ELSE 'USD' END"
     )
+    gics_expr = "gics_sector" if "gics_sector" in columns else "NULL"
+    industry_expr = "industry_name" if "industry_name" in columns else "NULL"
+    sector_source_expr = "sector_source" if "sector_source" in columns else "NULL"
     execute(
       f"""INSERT OR IGNORE INTO companies_next
-         (code, country, name, market, currency, updated_at)
+         (code, country, name, market, currency, gics_sector, industry_name,
+          sector_source, updated_at)
          SELECT
            code,
            COALESCE({country_expr}, 'KR'),
            name,
            market,
            {currency_expr},
+           {gics_expr},
+           {industry_expr},
+           {sector_source_expr},
            updated_at
          FROM companies"""
     )
@@ -178,6 +192,36 @@ def create_batch_settings() -> None:
     )
 
 
+def backfill_company_sectors() -> None:
+  result = execute(
+    """SELECT code, country, name, market, industry_name
+       FROM companies
+       WHERE gics_sector IS NULL OR gics_sector = ''"""
+  )
+  rows = []
+  for row in result["rows"]:
+    sector, source = infer_gics_sector(
+      code=str(row.get("code") or ""),
+      country=str(row.get("country") or ""),
+      name=str(row.get("name") or ""),
+      market=str(row.get("market") or ""),
+      industry_name=str(row.get("industry_name") or ""),
+    )
+    if sector:
+      rows.append((sector, source, row.get("code"), row.get("country")))
+
+  if rows:
+    from db import execute_many
+
+    execute_many(
+      """UPDATE companies
+         SET gics_sector = ?, sector_source = COALESCE(?, sector_source)
+         WHERE code = ? AND country = ?
+           AND (gics_sector IS NULL OR gics_sector = '')""",
+      rows,
+    )
+
+
 def migrate(clear_legacy_watchlist: bool) -> None:
   execute(
     """CREATE TABLE IF NOT EXISTS app_users (
@@ -193,6 +237,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
        )"""
   )
   create_companies()
+  backfill_company_sectors()
   create_metrics_history()
   create_batch_settings()
   execute(
@@ -348,6 +393,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   for statement in [
     "CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)",
     "CREATE INDEX IF NOT EXISTS idx_companies_country ON companies(country)",
+    "CREATE INDEX IF NOT EXISTS idx_companies_gics_sector ON companies(gics_sector)",
     "CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_granted ON user_discussion_access(granted_at)",
     "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_expires ON user_discussion_access(expires_at)",

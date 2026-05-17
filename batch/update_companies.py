@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from db import execute_many
+from sector_mapping import infer_gics_sector
 
 UA = (
   os.environ.get("SEC_USER_AGENT")
@@ -69,6 +70,12 @@ def fetch_kr_companies() -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
 
         code = stock_code.zfill(6)
         corp = corp_code.zfill(8)
+        gics_sector, sector_source = infer_gics_sector(
+          code=code,
+          country="KR",
+          name=corp_name,
+          market="KRX",
+        )
         corp_rows.append((code, corp, corp_name, timestamp))
         company_rows.append(
           (
@@ -79,6 +86,9 @@ def fetch_kr_companies() -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
             "KRW",
             corp,
             None,
+            gics_sector,
+            None,
+            sector_source,
             "dart_corp_code",
             timestamp,
           )
@@ -157,6 +167,12 @@ def fetch_us_companies() -> list[tuple[Any, ...]]:
       elif exchange == "Q":
         market = "NASDAQ"
 
+      gics_sector, sector_source = infer_gics_sector(
+        code=symbol,
+        country="US",
+        name=name,
+        market=market,
+      )
       rows.append(
         (
           symbol,
@@ -166,6 +182,9 @@ def fetch_us_companies() -> list[tuple[Any, ...]]:
           "USD",
           None,
           cik_map.get(symbol),
+          gics_sector,
+          None,
+          sector_source,
           "nasdaq_trader_sec",
           timestamp,
         )
@@ -212,14 +231,18 @@ def main() -> None:
   if company_rows:
     execute_many(
       """INSERT INTO companies
-         (code, country, name, market, currency, corp_code, cik, source, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (code, country, name, market, currency, corp_code, cik,
+          gics_sector, industry_name, sector_source, source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(code, country) DO UPDATE SET
            name = excluded.name,
            market = excluded.market,
            currency = excluded.currency,
            corp_code = COALESCE(excluded.corp_code, companies.corp_code),
            cik = COALESCE(excluded.cik, companies.cik),
+           gics_sector = COALESCE(excluded.gics_sector, companies.gics_sector),
+           industry_name = COALESCE(excluded.industry_name, companies.industry_name),
+           sector_source = COALESCE(excluded.sector_source, companies.sector_source),
            source = excluded.source,
            updated_at = excluded.updated_at""",
       company_rows,

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
+import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
+import { inferGicsSector, normalizeGicsSector } from "@/lib/gics-sector";
 
 function normalizeCode(code: string, country: string) {
   const trimmed = code.trim();
@@ -12,6 +14,7 @@ export async function GET() {
   if (!user) return unauthorized();
 
   try {
+    await ensureCompanySectorColumns();
     const result = await db.execute({
       sql: `SELECT
               uw.id,
@@ -19,6 +22,9 @@ export async function GET() {
               c.name,
               c.country,
               c.market,
+              c.gics_sector,
+              c.industry_name,
+              c.sector_source,
               uw.added_at,
               m.close_price AS price,
               m.market_cap,
@@ -48,26 +54,43 @@ export async function GET() {
       args: [user.id],
     });
 
-    const stocks = result.rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      country: row.country,
-      market: row.market,
-      added_at: row.added_at,
-      price: row.price,
-      market_cap: row.market_cap,
-      shares_outstanding: row.shares_outstanding,
-      equity: row.equity,
-      net_income: row.net_income,
-      operating_income: row.operating_income,
-      total_liabilities: row.total_liabilities,
-      roe: row.roe,
-      pbr: row.pbr,
-      per: row.per,
-      debt_ratio: row.debt_ratio,
-      collected_at: row.collected_at,
-    }));
+    const stocks = result.rows.map((row) => {
+      const gicsSector =
+        normalizeGicsSector(row.gics_sector) ||
+        inferGicsSector({
+          code: typeof row.code === "string" ? row.code : String(row.code),
+          country:
+            typeof row.country === "string" ? row.country : String(row.country),
+          name: typeof row.name === "string" ? row.name : String(row.name),
+          market: typeof row.market === "string" ? row.market : "",
+          industryName:
+            typeof row.industry_name === "string" ? row.industry_name : "",
+        });
+
+      return {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        country: row.country,
+        market: row.market,
+        gics_sector: gicsSector,
+        industry_name: row.industry_name,
+        sector_source: row.sector_source,
+        added_at: row.added_at,
+        price: row.price,
+        market_cap: row.market_cap,
+        shares_outstanding: row.shares_outstanding,
+        equity: row.equity,
+        net_income: row.net_income,
+        operating_income: row.operating_income,
+        total_liabilities: row.total_liabilities,
+        roe: row.roe,
+        pbr: row.pbr,
+        per: row.per,
+        debt_ratio: row.debt_ratio,
+        collected_at: row.collected_at,
+      };
+    });
 
     return NextResponse.json({ stocks });
   } catch (error) {
@@ -84,6 +107,7 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized();
 
   try {
+    await ensureCompanySectorColumns();
     const { code, country } = (await request.json()) as {
       code?: string;
       country?: string;

@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  GICS_SECTOR_GUIDES,
+  type GicsSector,
+  normalizeGicsSector,
+} from "@/lib/gics-sector";
 
 interface WatchlistStock {
   id: number;
@@ -9,6 +14,9 @@ interface WatchlistStock {
   name: string;
   country: string;
   market: string;
+  gics_sector?: string | null;
+  industry_name?: string | null;
+  sector_source?: string | null;
   added_at: string;
   price?: number | null;
   market_cap?: number | null;
@@ -77,6 +85,42 @@ const isCollectedWithin24Hours = (value: string | null | undefined) => {
   if (!date) return false;
   return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
 };
+
+function SectorTooltip({ sector }: { sector: GicsSector }) {
+  const guide = GICS_SECTOR_GUIDES[sector];
+
+  return (
+    <span className="group relative inline-flex">
+      <span
+        tabIndex={0}
+        aria-label={`${sector} 지표 가이드`}
+        className="inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold text-slate-600 transition hover:border-blue-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+      >
+        ?
+      </span>
+      <span className="pointer-events-none absolute left-1/2 top-7 z-20 w-72 -translate-x-1/2 translate-y-1 rounded-lg border border-slate-200 bg-white p-4 text-left text-xs text-slate-700 opacity-0 shadow-xl transition duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+        <span className="block text-sm font-bold text-slate-900 dark:text-white">
+          {sector} 지표 가이드
+        </span>
+        <span className="mt-3 grid grid-cols-3 gap-2">
+          <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
+            <span className="block text-slate-500 dark:text-slate-400">PER</span>
+            <span className="font-semibold">{guide.per}</span>
+          </span>
+          <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
+            <span className="block text-slate-500 dark:text-slate-400">PBR</span>
+            <span className="font-semibold">{guide.pbr}</span>
+          </span>
+          <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
+            <span className="block text-slate-500 dark:text-slate-400">ROE</span>
+            <span className="font-semibold">{guide.roe}</span>
+          </span>
+        </span>
+        <span className="mt-3 block leading-relaxed">{guide.summary}</span>
+      </span>
+    </span>
+  );
+}
 
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([]);
@@ -265,6 +309,7 @@ export default function WatchlistPage() {
               stock.per !== null ||
               stock.pbr !== null ||
               stock.roe !== null;
+            const gicsSector = normalizeGicsSector(stock.gics_sector);
 
             return (
               <div
@@ -279,6 +324,15 @@ export default function WatchlistPage() {
                     <p className="text-sm text-slate-600 dark:text-slate-400">
                       {stock.code} - {stock.market}
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                      <span>
+                        섹터:{" "}
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {gicsSector || "미분류"}
+                        </span>
+                      </span>
+                      {gicsSector && <SectorTooltip sector={gicsSector} />}
+                    </div>
                   </div>
                   <span className="rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
                     {stock.country === "KR" ? "KR" : "US"}

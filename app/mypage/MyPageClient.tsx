@@ -13,6 +13,7 @@ interface DiscussionAccessStatus {
   configured: boolean;
   hasAccess: boolean;
   grantedAt: string | null;
+  expiresAt: string | null;
 }
 
 function formatDateTime(value: string | null) {
@@ -138,6 +139,9 @@ export default function MyPageClient({
               </p>
               <p className="mt-1 text-slate-500 dark:text-slate-400">
                 권한 활성화 시간: {formatDateTime(status?.grantedAt || null)}
+              </p>
+              <p className="mt-1 text-slate-500 dark:text-slate-400">
+                조회 가능 만료일: {formatDateTime(status?.expiresAt || null)}
               </p>
             </div>
 

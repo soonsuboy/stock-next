@@ -213,12 +213,50 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   execute(
     """CREATE TABLE IF NOT EXISTS user_discussion_access (
          user_id    TEXT PRIMARY KEY,
+         code_id    INTEGER,
          code_hash  TEXT,
          granted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+         expires_at TEXT,
          FOREIGN KEY(user_id) REFERENCES app_users(id)
        )"""
   )
+  execute(
+    """CREATE TABLE IF NOT EXISTS discussion_access_codes (
+         id            INTEGER PRIMARY KEY AUTOINCREMENT,
+         label         TEXT NOT NULL,
+         code_hash     TEXT NOT NULL UNIQUE,
+         duration_days INTEGER NOT NULL,
+         active        INTEGER DEFAULT 1,
+         created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+         updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+       )"""
+  )
+  ensure_column("user_discussion_access", "code_id", "INTEGER")
   ensure_column("user_discussion_access", "code_hash", "TEXT")
+  ensure_column("user_discussion_access", "expires_at", "TEXT")
+  legacy_code = query_one(
+    "SELECT value FROM batch_settings WHERE key = 'discussion_access_code_hash'"
+  )
+  legacy_hash = str(legacy_code["value"]) if legacy_code and legacy_code.get("value") else ""
+  if legacy_hash:
+    execute(
+      """INSERT OR IGNORE INTO discussion_access_codes
+         (label, code_hash, duration_days, active, created_at, updated_at)
+         VALUES ('기존 코드', ?, 365, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+      [legacy_hash],
+    )
+    execute(
+      """UPDATE user_discussion_access
+         SET code_id = (
+               SELECT id
+               FROM discussion_access_codes
+               WHERE code_hash = ?
+               LIMIT 1
+             ),
+             expires_at = COALESCE(expires_at, datetime('now', '+365 days'))
+         WHERE code_hash = ?""",
+      [legacy_hash, legacy_hash],
+    )
   execute(
     """CREATE TABLE IF NOT EXISTS batch_runs (
          id          TEXT PRIMARY KEY,
@@ -306,6 +344,8 @@ def migrate(clear_legacy_watchlist: bool) -> None:
     "CREATE INDEX IF NOT EXISTS idx_companies_country ON companies(country)",
     "CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_granted ON user_discussion_access(granted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_expires ON user_discussion_access(expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_discussion_access_codes_active ON discussion_access_codes(active)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_code_country ON metrics_history(code, country)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_snapshot ON metrics_history(snapshot_date)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_country_code_snapshot ON metrics_history(country, code, snapshot_date)",

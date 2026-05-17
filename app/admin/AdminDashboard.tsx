@@ -10,6 +10,7 @@ interface AdminDashboardProps {
 type Market = "KR" | "US";
 type Selection = "missing" | "existing" | "incomplete";
 type BatchSettings = AdminBatchStatus["settings"];
+type AdminTab = "settings" | "coverage" | "telegram" | "manual" | "runs";
 
 interface TelegramChat {
   chatId: string;
@@ -52,6 +53,16 @@ interface TelegramRanking {
   negative: TelegramRankingStock[];
 }
 
+interface DiscussionAccessCode {
+  id: number;
+  label: string;
+  durationDays: number;
+  active: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+  activeGrantCount: number;
+}
+
 const statusLabels: Record<string, string> = {
   requested: "요청됨",
   success: "성공",
@@ -67,6 +78,13 @@ const dayOptions = [
   { value: 5, label: "금요일" },
   { value: 6, label: "토요일" },
   { value: 7, label: "일요일" },
+];
+const adminTabs: Array<{ id: AdminTab; label: string }> = [
+  { id: "settings", label: "배치설정" },
+  { id: "coverage", label: "배치적재현황" },
+  { id: "telegram", label: "텔레그램종목 토론설정" },
+  { id: "manual", label: "수동배치" },
+  { id: "runs", label: "최근 배치 설정" },
 ];
 
 function formatNumber(value: number) {
@@ -98,6 +116,7 @@ function summaryDateStatus(item: TelegramSummaryDate) {
 
 export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [status, setStatus] = useState<AdminBatchStatus | null>(initialStatus);
+  const [activeTab, setActiveTab] = useState<AdminTab>("settings");
   const [market, setMarket] = useState<Market>("KR");
   const [limit, setLimit] = useState(10);
   const [selection, setSelection] = useState<Selection>("missing");
@@ -111,7 +130,10 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsError, setSettingsError] = useState("");
-  const [discussionCode, setDiscussionCode] = useState("");
+  const [discussionCodes, setDiscussionCodes] = useState<DiscussionAccessCode[]>([]);
+  const [discussionCodeLabel, setDiscussionCodeLabel] = useState("");
+  const [discussionCodeValue, setDiscussionCodeValue] = useState("");
+  const [discussionCodeDurationDays, setDiscussionCodeDurationDays] = useState(30);
   const [discussionCodeConfigured, setDiscussionCodeConfigured] = useState(
     Boolean(initialStatus?.discussionAccessCodeConfigured)
   );
@@ -204,10 +226,28 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     }
   };
 
+  const refreshDiscussionCodes = async () => {
+    setDiscussionCodeError("");
+    try {
+      const response = await fetch("/api/admin/discussion-code");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "종목토론조회 코드 조회 실패");
+      }
+      setDiscussionCodes(data.codes || []);
+      setDiscussionCodeConfigured(Boolean(data.configured));
+    } catch (err) {
+      setDiscussionCodeError(
+        err instanceof Error ? err.message : "종목토론조회 코드 조회 중 오류 발생"
+      );
+    }
+  };
+
   useEffect(() => {
     queueMicrotask(() => {
       void refreshTelegramChats();
       void refreshTelegramSummaryDates();
+      void refreshDiscussionCodes();
     });
   }, []);
 
@@ -352,9 +392,13 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
 
     try {
       const response = await fetch("/api/admin/discussion-code", {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: discussionCode }),
+        body: JSON.stringify({
+          label: discussionCodeLabel,
+          code: discussionCodeValue,
+          durationDays: discussionCodeDurationDays,
+        }),
       });
       const data = await response.json();
 
@@ -363,6 +407,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       }
 
       setDiscussionCodeConfigured(Boolean(data.configured));
+      setDiscussionCodes(data.codes || []);
       setStatus((current) =>
         current
           ? {
@@ -371,15 +416,52 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             }
           : current
       );
-      setDiscussionCode("");
-      setDiscussionCodeMessage(
-        data.configured
-          ? "종목토론조회 코드를 저장했습니다."
-          : "종목토론조회 코드를 비활성화했습니다."
-      );
+      setDiscussionCodeLabel("");
+      setDiscussionCodeValue("");
+      setDiscussionCodeDurationDays(30);
+      setDiscussionCodeMessage("종목토론조회 코드를 추가했습니다.");
     } catch (err) {
       setDiscussionCodeError(
         err instanceof Error ? err.message : "종목토론조회 코드 저장 중 오류 발생"
+      );
+    } finally {
+      setDiscussionCodeSaving(false);
+    }
+  };
+
+  const toggleDiscussionCode = async (id: number, active: boolean) => {
+    setDiscussionCodeSaving(true);
+    setDiscussionCodeMessage("");
+    setDiscussionCodeError("");
+
+    try {
+      const response = await fetch("/api/admin/discussion-code", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, active }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "종목토론조회 코드 상태 변경 실패");
+      }
+
+      setDiscussionCodeConfigured(Boolean(data.configured));
+      setDiscussionCodes(data.codes || []);
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              discussionAccessCodeConfigured: Boolean(data.configured),
+            }
+          : current
+      );
+      setDiscussionCodeMessage(
+        active ? "종목토론조회 코드를 활성화했습니다." : "종목토론조회 코드를 비활성화했습니다."
+      );
+    } catch (err) {
+      setDiscussionCodeError(
+        err instanceof Error ? err.message : "종목토론조회 코드 상태 변경 중 오류 발생"
       );
     } finally {
       setDiscussionCodeSaving(false);
@@ -454,42 +536,144 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
         </div>
       )}
 
+      <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
+        {adminTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              activeTab === tab.id
+                ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "telegram" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           종목토론 접근 설정
         </h2>
         <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
-            <div>
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                종목토론조회 코드
-                <input
-                  type="password"
-                  value={discussionCode}
-                  onChange={(event) => setDiscussionCode(event.target.value)}
-                  placeholder={
-                    discussionCodeConfigured
-                      ? "새 코드 입력 또는 비워서 비활성화"
-                      : "사용자에게 공유할 코드 입력"
-                  }
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                />
-              </label>
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                현재 상태: {discussionCodeConfigured ? "설정됨" : "미설정"}.
-                로그인 사용자는 마이페이지에서 이 코드를 입력해야 종목 토론 메뉴와 페이지를 볼 수 있습니다.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              코드명
+              <input
+                type="text"
+                value={discussionCodeLabel}
+                onChange={(event) => setDiscussionCodeLabel(event.target.value)}
+                placeholder="예: 1개월 체험"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              종목토론조회 코드
+              <input
+                type="password"
+                value={discussionCodeValue}
+                onChange={(event) => setDiscussionCodeValue(event.target.value)}
+                placeholder="사용자에게 공유할 코드"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              조회 기간(일)
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                value={discussionCodeDurationDays}
+                onChange={(event) =>
+                  setDiscussionCodeDurationDays(
+                    Math.max(1, Math.min(3650, Number(event.target.value) || 1))
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
             <div className="flex items-end">
               <button
                 type="button"
-                disabled={discussionCodeSaving}
+                disabled={discussionCodeSaving || !discussionCodeValue.trim()}
                 onClick={saveDiscussionCode}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
+                className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
               >
-                {discussionCodeSaving ? "저장 중..." : "코드 저장"}
+                {discussionCodeSaving ? "저장 중..." : "코드 추가"}
               </button>
             </div>
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            현재 상태: {discussionCodeConfigured ? "활성 코드 있음" : "활성 코드 없음"}.
+            사용자가 마이페이지에서 코드를 입력하면 해당 코드의 기간만큼 종목 토론을 볼 수 있습니다.
+          </p>
+
+          <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
+              <thead className="bg-slate-50 dark:bg-slate-950">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                    코드명
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-200">
+                    기간
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-200">
+                    활성 사용자
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                    생성
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                    상태
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                {discussionCodes.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                      아직 등록된 코드가 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  discussionCodes.map((code) => (
+                    <tr key={code.id}>
+                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
+                        {code.label}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatNumber(code.durationDays)}일
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatNumber(code.activeGrantCount)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {formatDateTime(code.createdAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          disabled={discussionCodeSaving}
+                          onClick={() => toggleDiscussionCode(code.id, !code.active)}
+                          className={`rounded px-2 py-1 text-xs font-semibold ${
+                            code.active
+                              ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-950 dark:text-green-200"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                          }`}
+                        >
+                          {code.active ? "활성" : "비활성"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
 
           {discussionCodeMessage && (
@@ -504,7 +688,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           )}
         </div>
       </section>
+      )}
 
+      {activeTab === "coverage" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           적재 현황
@@ -572,7 +758,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           ))}
         </div>
       </section>
+      )}
 
+      {activeTab === "settings" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           자동 배치 설정
@@ -841,7 +1029,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           )}
         </div>
       </section>
+      )}
 
+      {activeTab === "telegram" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           텔레그램 종목 토론 설정
@@ -1218,7 +1408,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           )}
         </div>
       </section>
+      )}
 
+      {activeTab === "manual" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           수동 배치
@@ -1326,7 +1518,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           </p>
         </div>
       </section>
+      )}
 
+      {activeTab === "runs" && (
       <section>
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           최근 배치 실행
@@ -1416,6 +1610,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           </table>
         </div>
       </section>
+      )}
     </div>
   );
 }

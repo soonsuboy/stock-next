@@ -25,14 +25,14 @@ export async function POST(request: Request) {
   }
 
   const code = typeof body.code === "string" ? body.code : "";
-  const valid = await verifyDiscussionAccessCode(code);
-  if (!valid) {
+  const verifiedCode = await verifyDiscussionAccessCode(code);
+  if (!verifiedCode) {
     return NextResponse.json(
       { error: "종목토론조회 코드가 올바르지 않습니다." },
       { status: 403 }
     );
   }
 
-  await grantDiscussionAccess(user.id);
+  await grantDiscussionAccess(user.id, verifiedCode);
   return NextResponse.json(await getDiscussionAccessStatus(user.id));
 }

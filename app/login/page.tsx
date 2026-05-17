@@ -2,15 +2,32 @@ import { auth, signIn } from "@/auth";
 import { getOAuthSetupStatus } from "@/lib/oauth";
 import { redirect } from "next/navigation";
 
-async function signInWithGoogle() {
+function safeCallbackUrl(value: string | undefined) {
+  if (!value) return "/watchlist";
+  try {
+    const url = new URL(value, "http://localhost");
+    if (!["http:", "https:"].includes(url.protocol)) return "/watchlist";
+    if (!url.pathname.startsWith("/")) return "/watchlist";
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return value.startsWith("/") ? value : "/watchlist";
+  }
+}
+
+async function signInWithGoogle(formData: FormData) {
   "use server";
-  await signIn("google", { redirectTo: "/watchlist" });
+  const callbackUrl = formData.get("callbackUrl");
+  await signIn("google", {
+    redirectTo: safeCallbackUrl(
+      typeof callbackUrl === "string" ? callbackUrl : undefined
+    ),
+  });
 }
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
   const session = await auth();
   const setupStatus = getOAuthSetupStatus();
@@ -39,6 +56,11 @@ export default async function LoginPage({
 
         <div className="space-y-3">
           <form action={signInWithGoogle}>
+            <input
+              type="hidden"
+              name="callbackUrl"
+              value={safeCallbackUrl(params?.callbackUrl)}
+            />
             <button
               type="submit"
               disabled={!setupStatus.find((item) => item.id === "google")?.configured}

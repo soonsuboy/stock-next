@@ -109,6 +109,8 @@ const config = {
         pathname.startsWith("/search") ||
         pathname.startsWith("/watchlist") ||
         pathname.startsWith("/analysis") ||
+        pathname.startsWith("/discussions") ||
+        pathname.startsWith("/mypage") ||
         pathname.startsWith("/admin");
 
       if (isProtectedPage) {

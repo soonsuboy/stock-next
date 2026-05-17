@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requireDiscussionAccessApi } from "@/lib/discussion-access";
 import { createTelegramMediaToken } from "@/lib/telegram-media-token";
 
 function parseJsonArray(value: unknown) {
@@ -14,8 +14,8 @@ function parseJsonArray(value: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return unauthorized();
+  const { response } = await requireDiscussionAccessApi();
+  if (response) return response;
 
   const chatParam = request.nextUrl.searchParams.get("chatId") || "";
   const dateParam = request.nextUrl.searchParams.get("date") || "";

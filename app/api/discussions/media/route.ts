@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { requireDiscussionAccessApi } from "@/lib/discussion-access";
 import { isValidTelegramMediaToken } from "@/lib/telegram-media-token";
 
 function parseInteger(value: string | null) {
@@ -9,6 +10,9 @@ function parseInteger(value: string | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const { response } = await requireDiscussionAccessApi();
+  if (response) return response;
+
   const chatId = request.nextUrl.searchParams.get("chatId") || "";
   const messageId = parseInteger(request.nextUrl.searchParams.get("messageId"));
   const mediaIndex = parseInteger(request.nextUrl.searchParams.get("mediaIndex"));
@@ -56,9 +60,9 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": mimeType,
         "Content-Length": String(body.length),
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "CDN-Cache-Control": "public, max-age=31536000, immutable",
-        "Vercel-CDN-Cache-Control": "public, max-age=31536000, immutable",
+        "Cache-Control": "private, max-age=86400",
+        "CDN-Cache-Control": "no-store",
+        "Vercel-CDN-Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       },
     });

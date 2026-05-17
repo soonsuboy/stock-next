@@ -24,6 +24,7 @@ DEFAULT_BATCH_SETTINGS = {
   "telegram_media_enabled": "true",
   "telegram_media_max_bytes": "750000",
   "telegram_summary_enabled": "true",
+  "discussion_access_code_hash": "",
   "telegram_last_collect_hour_kst": "",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
@@ -210,6 +211,15 @@ def migrate(clear_legacy_watchlist: bool) -> None:
        )"""
   )
   execute(
+    """CREATE TABLE IF NOT EXISTS user_discussion_access (
+         user_id    TEXT PRIMARY KEY,
+         code_hash  TEXT,
+         granted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+         FOREIGN KEY(user_id) REFERENCES app_users(id)
+       )"""
+  )
+  ensure_column("user_discussion_access", "code_hash", "TEXT")
+  execute(
     """CREATE TABLE IF NOT EXISTS batch_runs (
          id          TEXT PRIMARY KEY,
          job_name    TEXT NOT NULL,
@@ -295,6 +305,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
     "CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)",
     "CREATE INDEX IF NOT EXISTS idx_companies_country ON companies(country)",
     "CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_discussion_access_granted ON user_discussion_access(granted_at)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_code_country ON metrics_history(code, country)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_snapshot ON metrics_history(snapshot_date)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_country_code_snapshot ON metrics_history(country, code, snapshot_date)",

@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   telegram_media_enabled: "true",
   telegram_media_max_bytes: "750000",
   telegram_summary_enabled: "true",
+  discussion_access_code_hash: "",
   telegram_last_collect_hour_kst: "",
   last_scheduled_run_date_kst: "",
   last_scheduler_check_at: "",

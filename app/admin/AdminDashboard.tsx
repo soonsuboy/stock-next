@@ -111,6 +111,13 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsError, setSettingsError] = useState("");
+  const [discussionCode, setDiscussionCode] = useState("");
+  const [discussionCodeConfigured, setDiscussionCodeConfigured] = useState(
+    Boolean(initialStatus?.discussionAccessCodeConfigured)
+  );
+  const [discussionCodeSaving, setDiscussionCodeSaving] = useState(false);
+  const [discussionCodeMessage, setDiscussionCodeMessage] = useState("");
+  const [discussionCodeError, setDiscussionCodeError] = useState("");
   const [telegramChats, setTelegramChats] = useState<TelegramChat[]>([]);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramSaving, setTelegramSaving] = useState(false);
@@ -140,6 +147,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       const nextStatus = await response.json();
       setStatus(nextStatus);
       setSettings(nextStatus.settings);
+      setDiscussionCodeConfigured(
+        Boolean(nextStatus.discussionAccessCodeConfigured)
+      );
     } finally {
       setStatusLoading(false);
     }
@@ -335,6 +345,47 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     }
   };
 
+  const saveDiscussionCode = async () => {
+    setDiscussionCodeSaving(true);
+    setDiscussionCodeMessage("");
+    setDiscussionCodeError("");
+
+    try {
+      const response = await fetch("/api/admin/discussion-code", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: discussionCode }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "종목토론조회 코드 저장 실패");
+      }
+
+      setDiscussionCodeConfigured(Boolean(data.configured));
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              discussionAccessCodeConfigured: Boolean(data.configured),
+            }
+          : current
+      );
+      setDiscussionCode("");
+      setDiscussionCodeMessage(
+        data.configured
+          ? "종목토론조회 코드를 저장했습니다."
+          : "종목토론조회 코드를 비활성화했습니다."
+      );
+    } catch (err) {
+      setDiscussionCodeError(
+        err instanceof Error ? err.message : "종목토론조회 코드 저장 중 오류 발생"
+      );
+    } finally {
+      setDiscussionCodeSaving(false);
+    }
+  };
+
   const dispatchBatch = async (nextSelection: Selection) => {
     if (!status) return;
     setSubmitting(true);
@@ -402,6 +453,57 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           을 추가해야 합니다. 현재 페이지는 현황 조회만 가능합니다.
         </div>
       )}
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
+          종목토론 접근 설정
+        </h2>
+        <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
+            <div>
+              <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                종목토론조회 코드
+                <input
+                  type="password"
+                  value={discussionCode}
+                  onChange={(event) => setDiscussionCode(event.target.value)}
+                  placeholder={
+                    discussionCodeConfigured
+                      ? "새 코드 입력 또는 비워서 비활성화"
+                      : "사용자에게 공유할 코드 입력"
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                현재 상태: {discussionCodeConfigured ? "설정됨" : "미설정"}.
+                로그인 사용자는 마이페이지에서 이 코드를 입력해야 종목 토론 메뉴와 페이지를 볼 수 있습니다.
+              </p>
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                disabled={discussionCodeSaving}
+                onClick={saveDiscussionCode}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
+              >
+                {discussionCodeSaving ? "저장 중..." : "코드 저장"}
+              </button>
+            </div>
+          </div>
+
+          {discussionCodeMessage && (
+            <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">
+              {discussionCodeMessage}
+            </div>
+          )}
+          {discussionCodeError && (
+            <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {discussionCodeError}
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">

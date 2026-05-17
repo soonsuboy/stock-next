@@ -5,6 +5,7 @@ import {
   type BatchSchedulerMeta,
   type BatchSettings,
 } from "@/lib/batch-settings";
+import { isDiscussionAccessCodeConfigured } from "@/lib/discussion-access";
 import { getWorkflowConfig } from "@/lib/github-actions";
 
 export interface BatchCoverage {
@@ -42,6 +43,7 @@ export interface AdminBatchStatus {
   workflowId: string;
   ref: string;
   maxManualLimit: number;
+  discussionAccessCodeConfigured: boolean;
 }
 
 function toNumber(value: unknown) {
@@ -66,6 +68,7 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
     runsResult,
     settings,
     schedulerMeta,
+    discussionAccessCodeConfigured,
   ] = await Promise.all([
     db.execute({
       sql: `SELECT country, COUNT(*) AS company_count
@@ -116,6 +119,7 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
     }),
     getBatchSettings(),
     getBatchSchedulerMeta(),
+    isDiscussionAccessCodeConfigured(),
   ]);
 
   const workflow = getWorkflowConfig();
@@ -176,5 +180,6 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
     workflowId: workflow.workflowId,
     ref: workflow.ref,
     maxManualLimit: getManualBatchLimit(),
+    discussionAccessCodeConfigured,
   };
 }

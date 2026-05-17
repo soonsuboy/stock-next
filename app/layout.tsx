@@ -4,6 +4,7 @@ import "./globals.css";
 import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import { isAdminEmail } from "@/lib/admin";
+import { getDiscussionAccessStatus } from "@/lib/discussion-access";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,6 +33,9 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
   const isAdmin = isAdminEmail(session?.user?.email);
+  const discussionAccess = session?.user?.id
+    ? await getDiscussionAccessStatus(session.user.id)
+    : null;
 
   return (
     <html
@@ -58,23 +62,30 @@ export default async function RootLayout({
               <Link href="/analysis" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 분석
               </Link>
-              <Link href="/discussions" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
-                종목 토론
-              </Link>
+              {discussionAccess?.hasAccess && (
+                <Link href="/discussions" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  종목 토론
+                </Link>
+              )}
               {isAdmin && (
                 <Link href="/admin" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                   관리자
                 </Link>
               )}
               {session?.user?.id ? (
-                <form action={signOutAction}>
-                  <button
-                    type="submit"
-                    className="text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
-                  >
-                    로그아웃
-                  </button>
-                </form>
+                <>
+                  <Link href="/mypage" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                    마이페이지
+                  </Link>
+                  <form action={signOutAction}>
+                    <button
+                      type="submit"
+                      className="text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                    >
+                      로그아웃
+                    </button>
+                  </form>
+                </>
               ) : (
                 <Link href="/login" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                   로그인

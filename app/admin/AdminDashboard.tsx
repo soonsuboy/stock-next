@@ -8,7 +8,7 @@ interface AdminDashboardProps {
 }
 
 type Market = "KR" | "US";
-type Selection = "missing" | "existing" | "incomplete";
+type Selection = "missing" | "existing" | "incomplete" | "codes";
 type BatchSettings = AdminBatchStatus["settings"];
 type AdminTab = "settings" | "coverage" | "telegram" | "manual" | "runs";
 
@@ -120,6 +120,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [market, setMarket] = useState<Market>("KR");
   const [limit, setLimit] = useState(10);
   const [selection, setSelection] = useState<Selection>("missing");
+  const [manualCodes, setManualCodes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -479,7 +480,12 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       const response = await fetch("/api/admin/trigger-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, limit, selection: nextSelection }),
+        body: JSON.stringify({
+          market,
+          limit,
+          selection: nextSelection === "codes" ? "all" : nextSelection,
+          codes: nextSelection === "codes" ? manualCodes : "",
+        }),
       });
       const data = await response.json();
 
@@ -488,13 +494,15 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       }
 
       setMessage(
-        `${coverageLabel(market)} ${formatNumber(limit)}건 ${
-          nextSelection === "missing"
-            ? "신규 수집"
-            : nextSelection === "incomplete"
-              ? "재무 공백 재집계"
-              : "재집계"
-        } 배치를 요청했습니다. 최근 배치 실행에 요청 기록이 먼저 남고, GitHub Actions가 시작하면 실행 기록으로 갱신됩니다.`
+        nextSelection === "codes"
+          ? `${coverageLabel(market)} 특정 종목(${manualCodes}) 재집계 배치를 요청했습니다.`
+          : `${coverageLabel(market)} ${formatNumber(limit)}건 ${
+              nextSelection === "missing"
+                ? "신규 수집"
+                : nextSelection === "incomplete"
+                  ? "재무 공백 재집계"
+                  : "재집계"
+            } 배치를 요청했습니다. 최근 배치 실행에 요청 기록이 먼저 남고, GitHub Actions가 시작하면 실행 기록으로 갱신됩니다.`
       );
       await refreshStatus();
     } catch (err) {
@@ -1441,6 +1449,16 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
               />
             </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              특정 종목 코드
+              <input
+                type="text"
+                value={manualCodes}
+                onChange={(event) => setManualCodes(event.target.value)}
+                placeholder={market === "US" ? "예: BSAC,AAPL" : "예: 005930"}
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
             <div className="text-sm text-slate-600 dark:text-slate-400">
               <p className="font-semibold text-slate-700 dark:text-slate-200">
                 현재 선택
@@ -1484,6 +1502,18 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               {submitting && selection === "incomplete"
                 ? "요청 중..."
                 : "재무 공백 재집계"}
+            </button>
+            <button
+              type="button"
+              disabled={
+                submitting ||
+                !status.workflowDispatchConfigured ||
+                !manualCodes.trim()
+              }
+              onClick={() => dispatchBatch("codes")}
+              className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting && selection === "codes" ? "요청 중..." : "특정 종목 재집계"}
             </button>
             <button
               type="button"

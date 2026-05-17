@@ -9,21 +9,41 @@ import {
 import { dispatchStockBatchWorkflow } from "@/lib/github-actions";
 
 type Market = "KR" | "US";
-type Selection = "missing" | "existing" | "incomplete";
+type Selection = "all" | "missing" | "existing" | "incomplete";
 
 function isMarket(value: unknown): value is Market {
   return value === "KR" || value === "US";
 }
 
 function isSelection(value: unknown): value is Selection {
-  return value === "missing" || value === "existing" || value === "incomplete";
+  return (
+    value === "all" ||
+    value === "missing" ||
+    value === "existing" ||
+    value === "incomplete"
+  );
+}
+
+function normalizeCodes(value: unknown, market: Market) {
+  if (typeof value !== "string") return "";
+  return value
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+    .map((item) => (market === "KR" ? item.padStart(6, "0") : item.replace(".", "-")))
+    .join(",");
 }
 
 export async function POST(request: Request) {
   const { response } = await requireAdminApi();
   if (response) return response;
 
-  let body: { market?: unknown; selection?: unknown; limit?: unknown };
+  let body: {
+    market?: unknown;
+    selection?: unknown;
+    limit?: unknown;
+    codes?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -39,14 +59,15 @@ export async function POST(request: Request) {
 
   if (!isSelection(body.selection)) {
     return NextResponse.json(
-      { error: "selection must be missing or existing" },
+      { error: "selection must be all, missing, existing, or incomplete" },
       { status: 400 }
     );
   }
 
+  const codes = normalizeCodes(body.codes, body.market);
   const maxLimit = getManualBatchLimit();
   const limit = Number(body.limit);
-  if (!Number.isInteger(limit) || limit < 1 || limit > maxLimit) {
+  if (!codes && (!Number.isInteger(limit) || limit < 1 || limit > maxLimit)) {
     return NextResponse.json(
       { error: `limit must be an integer between 1 and ${maxLimit}` },
       { status: 400 }
@@ -59,13 +80,16 @@ export async function POST(request: Request) {
     id: requestId,
     jobName: "update_metrics",
     market: body.market,
-    message: `manual dispatch requested selection=${body.selection} limit=${limit}`,
+    message: codes
+      ? `manual dispatch requested codes=${codes}`
+      : `manual dispatch requested selection=${body.selection} limit=${limit}`,
   });
 
   const result = await dispatchStockBatchWorkflow({
     mode,
-    limit: String(limit),
+    limit: codes ? "" : String(limit),
     selection: body.selection,
+    codes,
     requestId,
   });
 

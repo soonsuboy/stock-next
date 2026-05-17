@@ -84,7 +84,29 @@ ADR_SHARE_RATIO = {
   # TSM ADS represents 5 ordinary shares. SEC reports ordinary shares, while Stooq
   # quotes the NYSE ADS, so divide shares before calculating USD market cap.
   "TSM": 5.0,
+  # Banco Santander Chile's NYSE ADS represents 400 ordinary shares. SEC reports
+  # ordinary shares in companyfacts, while Stooq quotes the NYSE ADS.
+  "BSAC": 400.0,
 }
+US_FINANCIAL_CURRENCY_OVERRIDES = {
+  # Yahoo/SEC XBRL financial statement values for Banco Santander Chile are in
+  # Chilean pesos, while the NYSE ADS quote and market cap are USD.
+  "BSAC": "CLP",
+}
+SEC_FINANCIAL_UNITS = [
+  "USD",
+  "CLP",
+  "EUR",
+  "GBP",
+  "CAD",
+  "BRL",
+  "MXN",
+  "JPY",
+  "KRW",
+  "CNY",
+  "TWD",
+  "INR",
+]
 SEC_TICKER_MAP: dict[str, str] | None = None
 
 
@@ -160,8 +182,10 @@ def merge_financials(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[
   return merged
 
 
-def load_companies(market: str) -> list[dict[str, Any]]:
-  common_stock_filter = "AND name LIKE '%Common Stock%'" if market == "US" else ""
+def load_companies(market: str, include_non_common: bool = False) -> list[dict[str, Any]]:
+  common_stock_filter = (
+    "AND name LIKE '%Common Stock%'" if market == "US" and not include_non_common else ""
+  )
   result = execute(
     f"""SELECT code, country, name, market, currency, corp_code, cik
        FROM companies
@@ -469,6 +493,32 @@ def fetch_stooq_quote(symbol: str) -> dict[str, Any]:
   return {"price": to_number(row.get("Close"))}
 
 
+def fetch_stooq_fx_to_usd(currency: str) -> tuple[float | None, str]:
+  code = currency.strip().upper()
+  if not code or code == "USD":
+    return 1.0, "identity"
+
+  for symbol, invert in [(f"{code.lower()}usd", False), (f"usd{code.lower()}", True)]:
+    try:
+      response = requests.get(
+        "https://stooq.com/q/l/",
+        params={"s": symbol, "f": "sd2t2ohlcv", "h": "", "e": "csv"},
+        headers={"User-Agent": UA},
+        timeout=15,
+      )
+      response.raise_for_status()
+      reader = csv.DictReader(StringIO(response.text))
+      row = next(reader, None)
+      close = to_number(row.get("Close") if row else None)
+      if close is None or close <= 0:
+        continue
+      return (1 / close if invert else close), f"stooq/{symbol.upper()}"
+    except Exception:
+      continue
+
+  return None, f"stooq/{code}USD"
+
+
 def fetch_yahoo_shares(symbol: str) -> float | None:
   types = [
     "quarterlyBasicAverageShares",
@@ -672,7 +722,9 @@ def latest_fact(
           continue
         if form and form not in SEC_ALLOWED_FORMS:
           continue
-        candidates.append(row)
+        item = dict(row)
+        item["_unit"] = unit
+        candidates.append(item)
 
   candidates.sort(
     key=lambda item: (str(item.get("filed") or ""), str(item.get("end") or "")),
@@ -705,25 +757,25 @@ def fetch_sec_financials(company: dict[str, Any]) -> dict[str, Any]:
       "StockholdersEquity",
       "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     ],
-    ["USD"],
+    SEC_FINANCIAL_UNITS,
   )
   net_income = latest_fact(
     facts,
     "us-gaap",
     ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
-    ["USD"],
+    SEC_FINANCIAL_UNITS,
   )
   operating_income = latest_fact(
     facts,
     "us-gaap",
     ["OperatingIncomeLoss"],
-    ["USD"],
+    SEC_FINANCIAL_UNITS,
   )
   liabilities = latest_fact(
     facts,
     "us-gaap",
     ["Liabilities"],
-    ["USD"],
+    SEC_FINANCIAL_UNITS,
   )
   taxonomy = "us-gaap"
 
@@ -732,25 +784,25 @@ def fetch_sec_financials(company: dict[str, Any]) -> dict[str, Any]:
       facts,
       "ifrs-full",
       ["EquityAttributableToOwnersOfParent", "Equity"],
-      ["USD"],
+      SEC_FINANCIAL_UNITS,
     )
     ifrs_net_income = latest_fact(
       facts,
       "ifrs-full",
       ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
-      ["USD"],
+      SEC_FINANCIAL_UNITS,
     )
     ifrs_operating_income = latest_fact(
       facts,
       "ifrs-full",
       ["ProfitLossFromOperatingActivities"],
-      ["USD"],
+      SEC_FINANCIAL_UNITS,
     )
     ifrs_liabilities = latest_fact(
       facts,
       "ifrs-full",
       ["Liabilities"],
-      ["USD"],
+      SEC_FINANCIAL_UNITS,
     )
     equity = equity or ifrs_equity
     net_income = net_income or ifrs_net_income
@@ -767,6 +819,14 @@ def fetch_sec_financials(company: dict[str, Any]) -> dict[str, Any]:
     allow_quarterly=True,
   )
   anchor = equity or net_income or operating_income or liabilities
+  financial_currency = next(
+    (
+      str(item.get("_unit"))
+      for item in [equity, net_income, operating_income, liabilities]
+      if item and item.get("_unit")
+    ),
+    "USD",
+  )
 
   return {
     "equity": to_number(equity.get("val") if equity else None),
@@ -776,8 +836,65 @@ def fetch_sec_financials(company: dict[str, Any]) -> dict[str, Any]:
     "shares_outstanding": to_number(shares.get("val") if shares else None),
     "bsns_year": str(anchor.get("fy")) if anchor and anchor.get("fy") else None,
     "report_code": str(anchor.get("form")) if anchor and anchor.get("form") else None,
+    "financial_currency": financial_currency,
     "source": f"sec_companyfacts/{taxonomy}/{cik}",
   }
+
+
+def convert_us_financials_to_usd(financials: dict[str, Any]) -> dict[str, Any]:
+  currency = str(financials.get("financial_currency") or "USD").upper()
+  if currency == "USD":
+    return financials
+
+  rate, source = fetch_stooq_fx_to_usd(currency)
+  converted = dict(financials)
+  original_source = converted.get("source")
+  if rate is None:
+    for key in ["equity", "net_income", "operating_income", "total_liabilities"]:
+      converted[key] = None
+    converted["source"] = {
+      "primary": original_source,
+      "financial_currency": currency,
+      "currency_conversion_error": f"missing FX rate {currency}->USD",
+    }
+    return converted
+
+  for key in ["equity", "net_income", "operating_income", "total_liabilities"]:
+    value = to_number(converted.get(key))
+    if value is not None:
+      converted[key] = value * rate
+  converted["source"] = {
+    "primary": original_source,
+    "financial_currency": currency,
+    "fx_to_usd": rate,
+    "fx_source": source,
+  }
+  converted["financial_currency"] = "USD"
+  return converted
+
+
+def resolve_us_shares_for_quote(code: str, shares: float | None) -> tuple[float | None, str, float]:
+  ratio = ADR_SHARE_RATIO.get(code, 1.0)
+  if ratio != 1.0:
+    if shares is not None:
+      return shares / ratio, f"sec_companyfacts/adr_ratio_{ratio:g}", ratio
+    try:
+      yahoo_shares = fetch_yahoo_shares(code)
+    except Exception:
+      yahoo_shares = None
+    if yahoo_shares is None:
+      return None, "missing", ratio
+    if yahoo_shares > 10_000_000_000:
+      return yahoo_shares / ratio, f"yahoo_timeseries/adr_ratio_{ratio:g}", ratio
+    return yahoo_shares, "yahoo_timeseries", ratio
+
+  if shares is not None:
+    return shares, "sec_companyfacts", ratio
+  try:
+    yahoo_shares = fetch_yahoo_shares(code)
+  except Exception:
+    yahoo_shares = None
+  return yahoo_shares, "yahoo_timeseries" if yahoo_shares is not None else "missing", ratio
 
 
 def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
@@ -823,21 +940,14 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
             "primary": financials.get("source"),
             "fallback_error": f"yahoo_timeseries/{error}",
           }
+    if code in US_FINANCIAL_CURRENCY_OVERRIDES:
+      financials["financial_currency"] = US_FINANCIAL_CURRENCY_OVERRIDES[code]
+    financials = convert_us_financials_to_usd(financials)
     price = quote.get("price")
-    shares = financials.get("shares_outstanding")
-    share_source = "sec_companyfacts"
-    share_ratio = ADR_SHARE_RATIO.get(code, 1.0)
-    if shares is None or share_ratio != 1.0:
-      try:
-        yahoo_shares = fetch_yahoo_shares(code)
-      except Exception:
-        yahoo_shares = None
-      if yahoo_shares is not None:
-        shares = yahoo_shares
-        share_source = "yahoo_timeseries"
-    if shares is not None and share_ratio != 1.0 and share_source != "yahoo_timeseries":
-      shares = shares / share_ratio
-      share_source = f"sec_companyfacts/adr_ratio_{share_ratio:g}"
+    shares, share_source, share_ratio = resolve_us_shares_for_quote(
+      code,
+      to_number(financials.get("shares_outstanding")),
+    )
     market_cap = price * shares if price is not None and shares is not None else None
 
   equity = financials.get("equity")
@@ -955,7 +1065,7 @@ def main() -> None:
   if args.shard_index < 0 or args.shard_index >= args.shard_count:
     raise ValueError("--shard-index must be between 0 and shard-count - 1")
 
-  all_companies = load_companies(args.market)
+  all_companies = load_companies(args.market, include_non_common=bool(args.codes))
   if args.codes:
     requested_codes = [
       normalize_code(part, args.market)

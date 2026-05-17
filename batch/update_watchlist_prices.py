@@ -6,6 +6,7 @@ from typing import Any
 
 from db import execute, execute_many
 from update_metrics import (
+  ADR_SHARE_RATIO,
   fetch_kr_quote,
   fetch_stooq_quote,
   now_text,
@@ -120,6 +121,9 @@ def fetch_latest_price_and_shares(row: dict[str, Any]) -> tuple[float | None, fl
   quote = fetch_stooq_quote(code)
   price = to_number(quote.get("price"))
   shares = stored_shares
+  ratio = ADR_SHARE_RATIO.get(code, 1.0)
+  if ratio != 1.0 and shares is not None and shares > 10_000_000_000:
+    shares = shares / ratio
   market_cap = price * shares if price is not None and shares is not None else None
   return price, market_cap, shares, "stooq"
 

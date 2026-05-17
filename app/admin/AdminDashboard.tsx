@@ -21,6 +21,37 @@ interface TelegramChat {
   updatedAt: string | null;
 }
 
+interface TelegramSummaryDate {
+  date: string;
+  chatCount: number;
+  messageCount: number;
+  summaryCount: number;
+  successCount: number;
+  failedCount: number;
+  pendingCount: number;
+  lastMessageAt: string | null;
+  lastSummaryAt: string | null;
+}
+
+interface TelegramRankingStock {
+  key: string;
+  code: string | null;
+  country: string | null;
+  name: string;
+  count: number;
+  reasons: string[];
+}
+
+interface TelegramRanking {
+  date: string;
+  period: "day" | "week";
+  startDate: string;
+  endDate: string;
+  summaryRows: number;
+  positive: TelegramRankingStock[];
+  negative: TelegramRankingStock[];
+}
+
 const statusLabels: Record<string, string> = {
   requested: "요청됨",
   success: "성공",
@@ -53,6 +84,18 @@ function coverageLabel(country: string) {
   return country === "KR" ? "한국" : "미국";
 }
 
+function rankingStockLabel(stock: TelegramRankingStock) {
+  const code = stock.country && stock.code ? ` (${stock.country}:${stock.code})` : "";
+  return `${stock.name}${code}`;
+}
+
+function summaryDateStatus(item: TelegramSummaryDate) {
+  if (item.failedCount > 0) return "실패";
+  if (item.pendingCount > 0) return "대기";
+  if (item.successCount > 0) return "성공";
+  return "미요약";
+}
+
 export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [status, setStatus] = useState<AdminBatchStatus | null>(initialStatus);
   const [market, setMarket] = useState<Market>("KR");
@@ -73,6 +116,13 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [telegramSaving, setTelegramSaving] = useState(false);
   const [telegramMessage, setTelegramMessage] = useState("");
   const [telegramError, setTelegramError] = useState("");
+  const [telegramSummaryDates, setTelegramSummaryDates] = useState<
+    TelegramSummaryDate[]
+  >([]);
+  const [telegramDatesLoading, setTelegramDatesLoading] = useState(false);
+  const [telegramRanking, setTelegramRanking] =
+    useState<TelegramRanking | null>(null);
+  const [telegramRankingLoading, setTelegramRankingLoading] = useState(false);
 
   const maxLimit = status?.maxManualLimit ?? 500;
   const selectedCoverage = useMemo(
@@ -125,9 +175,29 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     }
   };
 
+  const refreshTelegramSummaryDates = async () => {
+    setTelegramDatesLoading(true);
+    setTelegramError("");
+    try {
+      const response = await fetch("/api/admin/telegram/summaries");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "텔레그램 요약 날짜 조회 실패");
+      }
+      setTelegramSummaryDates(data.dates || []);
+    } catch (err) {
+      setTelegramError(
+        err instanceof Error ? err.message : "텔레그램 요약 날짜 조회 중 오류 발생"
+      );
+    } finally {
+      setTelegramDatesLoading(false);
+    }
+  };
+
   useEffect(() => {
     queueMicrotask(() => {
       void refreshTelegramChats();
+      void refreshTelegramSummaryDates();
     });
   }, []);
 
@@ -159,6 +229,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       }
       setTelegramChats(data.chats || []);
       setTelegramMessage("텔레그램 채팅방 설정을 저장했습니다.");
+      await refreshTelegramSummaryDates();
     } catch (err) {
       setTelegramError(
         err instanceof Error ? err.message : "텔레그램 채팅방 저장 중 오류 발생"
@@ -170,7 +241,8 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
 
   const triggerTelegram = async (
     mode: "telegram_dialogs" | "telegram_collect" | "telegram_summarize",
-    backfill = false
+    backfill = false,
+    date = ""
   ) => {
     setTelegramSaving(true);
     setTelegramMessage("");
@@ -179,7 +251,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       const response = await fetch("/api/admin/telegram/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, backfill }),
+        body: JSON.stringify({ mode, backfill, date }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -188,15 +260,41 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setTelegramMessage(
         backfill
           ? "텔레그램 이미지 백필 수집을 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
+          : date
+            ? `${date} 요약 재시도를 요청했습니다. GitHub Actions 완료 후 날짜 목록을 새로고침하세요.`
           : "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
       );
       await refreshStatus();
+      await refreshTelegramSummaryDates();
     } catch (err) {
       setTelegramError(
         err instanceof Error ? err.message : "텔레그램 배치 요청 중 오류 발생"
       );
     } finally {
       setTelegramSaving(false);
+    }
+  };
+
+  const loadTelegramRanking = async (
+    date: string,
+    period: "day" | "week"
+  ) => {
+    setTelegramRankingLoading(true);
+    setTelegramError("");
+    try {
+      const params = new URLSearchParams({ date, period });
+      const response = await fetch(`/api/admin/telegram/rankings?${params}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "텔레그램 종목 랭킹 조회 실패");
+      }
+      setTelegramRanking(data);
+    } catch (err) {
+      setTelegramError(
+        err instanceof Error ? err.message : "텔레그램 종목 랭킹 조회 중 오류 발생"
+      );
+    } finally {
+      setTelegramRankingLoading(false);
     }
   };
 
@@ -821,9 +919,190 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             <p className="text-xs text-slate-500 dark:text-slate-400">
               GitHub Secrets에 TELEGRAM_API_ID, TELEGRAM_API_HASH,
               TELEGRAM_SESSION_STRING, OPENAI_API_KEY가 필요합니다.
-              처음 수집할 때는 최근 대화 조회 범위를 24시간 이상으로 두는 것을 권장합니다.
+              평소에는 최근 대화 조회 범위를 2시간으로 두고, 과거 누락분만
+              백필할 때 범위를 늘리는 것을 권장합니다.
             </p>
           </div>
+
+          <div className="mt-6 rounded-lg border border-slate-200 dark:border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  수집 날짜별 요약 관리
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  OpenAI 결제나 키 문제로 실패한 날짜는 요약 재시도로 다시 분석할 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={telegramDatesLoading}
+                onClick={refreshTelegramSummaryDates}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                날짜 새로고침
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
+                <thead className="bg-slate-50 dark:bg-slate-950">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                      날짜
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-200">
+                      대화
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-200">
+                      성공/실패/대기
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                      최근 수집
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                      기능
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                  {telegramDatesLoading ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                        수집 날짜를 불러오는 중...
+                      </td>
+                    </tr>
+                  ) : telegramSummaryDates.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                        아직 수집된 날짜가 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    telegramSummaryDates.map((item) => (
+                      <tr key={item.date}>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
+                          <span className="font-semibold">{item.date}</span>
+                          <span className="ml-2 rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            {summaryDateStatus(item)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-200">
+                          {formatNumber(item.messageCount)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-200">
+                          {formatNumber(item.successCount)} /{" "}
+                          {formatNumber(item.failedCount)} /{" "}
+                          {formatNumber(item.pendingCount)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                          {formatDateTime(item.lastMessageAt)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={telegramSaving}
+                              onClick={() =>
+                                triggerTelegram("telegram_summarize", false, item.date)
+                              }
+                              className="rounded bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+                            >
+                              요약 재시도
+                            </button>
+                            <button
+                              type="button"
+                              disabled={telegramRankingLoading}
+                              onClick={() => loadTelegramRanking(item.date, "day")}
+                              className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              당일 랭킹
+                            </button>
+                            <button
+                              type="button"
+                              disabled={telegramRankingLoading}
+                              onClick={() => loadTelegramRanking(item.date, "week")}
+                              className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              1주 랭킹
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {telegramRanking && (
+            <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {telegramRanking.period === "week" ? "1주" : "당일"} 긍정/부정
+                  언급 랭킹
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  기준: {telegramRanking.startDate} ~ {telegramRanking.endDate} ·
+                  성공 요약 {formatNumber(telegramRanking.summaryRows)}건
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <h4 className="text-sm font-bold text-green-700 dark:text-green-300">
+                    긍정 종목
+                  </h4>
+                  <ol className="mt-2 space-y-2 text-sm">
+                    {telegramRanking.positive.length === 0 ? (
+                      <li className="text-slate-500">집계된 종목이 없습니다.</li>
+                    ) : (
+                      telegramRanking.positive.map((stock) => (
+                        <li key={stock.key}>
+                          <span className="font-semibold">
+                            {rankingStockLabel(stock)}
+                          </span>
+                          <span className="ml-2 text-slate-500">
+                            {formatNumber(stock.count)}회
+                          </span>
+                          {stock.reasons[0] && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              {stock.reasons[0]}
+                            </p>
+                          )}
+                        </li>
+                      ))
+                    )}
+                  </ol>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-red-700 dark:text-red-300">
+                    부정 종목
+                  </h4>
+                  <ol className="mt-2 space-y-2 text-sm">
+                    {telegramRanking.negative.length === 0 ? (
+                      <li className="text-slate-500">집계된 종목이 없습니다.</li>
+                    ) : (
+                      telegramRanking.negative.map((stock) => (
+                        <li key={stock.key}>
+                          <span className="font-semibold">
+                            {rankingStockLabel(stock)}
+                          </span>
+                          <span className="ml-2 text-slate-500">
+                            {formatNumber(stock.count)}회
+                          </span>
+                          {stock.reasons[0] && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              {stock.reasons[0]}
+                            </p>
+                          )}
+                        </li>
+                      ))
+                    )}
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
 
           {telegramMessage && (
             <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">

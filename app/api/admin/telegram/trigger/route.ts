@@ -40,7 +40,9 @@ export async function POST(request: Request) {
     id: requestId,
     jobName: "telegram_sync",
     market: "TELEGRAM",
-    message: `telegram dispatch requested mode=${body.mode} backfill=${Boolean(
+    message: `telegram dispatch requested mode=${body.mode} date=${
+      typeof body.date === "string" ? body.date : ""
+    } backfill=${Boolean(
       body.backfill
     )}`,
   });

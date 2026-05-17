@@ -50,7 +50,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   watchlist_skip_recent_hours: "24",
   watchlist_price_enabled: "true",
   telegram_enabled: "false",
-  telegram_collect_hours_back: "24",
+  telegram_collect_hours_back: "2",
   telegram_message_limit: "200",
   telegram_media_enabled: "true",
   telegram_media_max_bytes: "750000",
@@ -146,7 +146,7 @@ function parseSettings(values: Record<string, string>): BatchSettings {
     telegramEnabled: parseBoolean(values.telegram_enabled, false),
     telegramCollectHoursBack: parseInteger(
       values.telegram_collect_hours_back,
-      24,
+      2,
       1,
       168
     ),
@@ -250,7 +250,7 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
     watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
     telegram_enabled: String(source.telegramEnabled ?? "false"),
-    telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "24"),
+    telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "2"),
     telegram_message_limit: String(source.telegramMessageLimit ?? "200"),
     telegram_media_enabled: String(source.telegramMediaEnabled ?? "true"),
     telegram_media_max_bytes: String(source.telegramMediaMaxBytes ?? "750000"),

@@ -1,17 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AdminBatchStatus } from "@/lib/admin-data";
 
 interface AdminDashboardProps {
-  initialStatus: AdminBatchStatus;
+  initialStatus: AdminBatchStatus | null;
 }
 
 type Market = "KR" | "US";
-type Selection = "missing" | "existing";
+type Selection = "missing" | "existing" | "incomplete";
 type BatchSettings = AdminBatchStatus["settings"];
 
 const statusLabels: Record<string, string> = {
+  requested: "요청됨",
   success: "성공",
   partial: "부분 성공",
   failed: "실패",
@@ -43,42 +44,62 @@ function coverageLabel(country: string) {
 }
 
 export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
-  const [status, setStatus] = useState(initialStatus);
+  const [status, setStatus] = useState<AdminBatchStatus | null>(initialStatus);
   const [market, setMarket] = useState<Market>("KR");
   const [limit, setLimit] = useState(10);
   const [selection, setSelection] = useState<Selection>("missing");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [settings, setSettings] = useState<BatchSettings>(initialStatus.settings);
+  const [settings, setSettings] = useState<BatchSettings | null>(
+    initialStatus?.settings ?? null
+  );
+  const [statusLoading, setStatusLoading] = useState(!initialStatus);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsError, setSettingsError] = useState("");
 
-  const maxLimit = status.maxManualLimit;
+  const maxLimit = status?.maxManualLimit ?? 500;
   const selectedCoverage = useMemo(
-    () => status.coverage.find((item) => item.country === market),
-    [market, status.coverage]
+    () => status?.coverage.find((item) => item.country === market),
+    [market, status?.coverage]
   );
 
   const refreshStatus = async () => {
-    const response = await fetch("/api/admin/status");
-    if (!response.ok) {
-      throw new Error("관리자 상태를 다시 불러오지 못했습니다.");
+    setStatusLoading(true);
+    try {
+      const response = await fetch("/api/admin/status");
+      if (!response.ok) {
+        throw new Error("관리자 상태를 다시 불러오지 못했습니다.");
+      }
+      const nextStatus = await response.json();
+      setStatus(nextStatus);
+      setSettings(nextStatus.settings);
+    } finally {
+      setStatusLoading(false);
     }
-    const nextStatus = await response.json();
-    setStatus(nextStatus);
-    setSettings(nextStatus.settings);
   };
+
+  useEffect(() => {
+    if (!initialStatus) {
+      queueMicrotask(() => {
+        void refreshStatus().catch((err) => {
+          setError(err instanceof Error ? err.message : "관리자 상태 조회 실패");
+          setStatusLoading(false);
+        });
+      });
+    }
+  }, [initialStatus]);
 
   const updateSetting = <K extends keyof BatchSettings>(
     key: K,
     value: BatchSettings[K]
   ) => {
-    setSettings((current) => ({ ...current, [key]: value }));
+    setSettings((current) => (current ? { ...current, [key]: value } : current));
   };
 
   const saveSettings = async () => {
+    if (!settings) return;
     setSettingsSaving(true);
     setSettingsMessage("");
     setSettingsError("");
@@ -96,7 +117,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       }
 
       setSettings(data.settings);
-      setStatus((current) => ({ ...current, settings: data.settings }));
+      setStatus((current) =>
+        current ? { ...current, settings: data.settings } : current
+      );
       setSettingsMessage("배치 설정을 저장했습니다. 다음 자동 배치부터 적용됩니다.");
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "배치 설정 저장 중 오류 발생");
@@ -106,6 +129,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   };
 
   const dispatchBatch = async (nextSelection: Selection) => {
+    if (!status) return;
     setSubmitting(true);
     setMessage("");
     setError("");
@@ -125,8 +149,12 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
 
       setMessage(
         `${coverageLabel(market)} ${formatNumber(limit)}건 ${
-          nextSelection === "missing" ? "신규 수집" : "재집계"
-        } 배치를 요청했습니다. GitHub Actions에서 실행 상태를 확인할 수 있습니다.`
+          nextSelection === "missing"
+            ? "신규 수집"
+            : nextSelection === "incomplete"
+              ? "재무 공백 재집계"
+              : "재집계"
+        } 배치를 요청했습니다. 최근 배치 실행에 요청 기록이 먼저 남고, GitHub Actions가 시작하면 실행 기록으로 갱신됩니다.`
       );
       await refreshStatus();
     } catch (err) {
@@ -135,6 +163,19 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setSubmitting(false);
     }
   };
+
+  if (!status || !settings) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        <h1 className="text-4xl font-bold text-slate-900 dark:text-white">
+          관리자
+        </h1>
+        <div className="mt-8 rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          {statusLoading ? "관리자 현황을 불러오는 중..." : error || "관리자 현황을 불러오지 못했습니다."}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -196,6 +237,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                   </dt>
                   <dd className="text-xl font-bold text-slate-900 dark:text-white">
                     {formatNumber(item.missingMetricsCount)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    재무 공백 기업
+                  </dt>
+                  <dd className="text-xl font-bold text-slate-900 dark:text-white">
+                    {formatNumber(item.incompleteMetricsCount)}
                   </dd>
                 </div>
                 <div>
@@ -523,6 +572,10 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 건, 재무 적재 {formatNumber(selectedCoverage?.metricsCompanyCount || 0)}
                 건
               </p>
+              <p className="mt-1">
+                재무 공백 {formatNumber(selectedCoverage?.incompleteMetricsCount || 0)}
+                건
+              </p>
               <p className="mt-1">최대 {formatNumber(maxLimit)}건까지 요청 가능</p>
             </div>
           </div>
@@ -543,6 +596,16 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
             >
               {submitting && selection === "existing" ? "요청 중..." : "기존 기업 재집계"}
+            </button>
+            <button
+              type="button"
+              disabled={submitting || !status.workflowDispatchConfigured}
+              onClick={() => dispatchBatch("incomplete")}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting && selection === "incomplete"
+                ? "요청 중..."
+                : "재무 공백 재집계"}
             </button>
             <button
               type="button"
@@ -582,12 +645,21 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           최근 배치 실행
         </h2>
+        <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+          최근 100개 요청/실행을 표시합니다.
+        </p>
         <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
           <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
             <thead className="bg-slate-50 dark:bg-slate-900">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
                   시작
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                  완료
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
+                  작업
                 </th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200">
                   시장
@@ -613,7 +685,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               {status.recentRuns.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={9}
                     className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                   >
                     아직 기록된 배치 실행이 없습니다.
@@ -624,6 +696,12 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                   <tr key={run.id}>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
                       {formatDateTime(run.startedAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
+                      {formatDateTime(run.completedAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
+                      {run.jobName}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
                       {run.market || "-"}

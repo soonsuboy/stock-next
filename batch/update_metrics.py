@@ -11,6 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
+from bs4 import BeautifulSoup
 
 from db import execute, execute_many
 
@@ -27,10 +28,40 @@ REPORT_CODES = [
   ("11013", "1분기보고서"),
 ]
 ACCOUNT_PATTERNS = {
-  "equity": ["자본총계"],
-  "net_income": ["당기순이익", "당기순이익(손실)", "연결당기순이익"],
-  "operating_income": ["영업이익", "영업이익(손실)"],
-  "total_liabilities": ["부채총계"],
+  "equity": [
+    "자본총계",
+    "자본",
+    "자본 총계",
+    "지배기업의 소유주에게 귀속되는 자본",
+  ],
+  "net_income": [
+    "당기순이익",
+    "당기순이익(손실)",
+    "연결당기순이익",
+    "당기순손익",
+    "분기순이익",
+    "반기순이익",
+  ],
+  "operating_income": ["영업이익", "영업이익(손실)", "영업손익"],
+  "total_liabilities": ["부채총계", "부채", "부채 총계"],
+}
+ACCOUNT_ID_PATTERNS = {
+  "equity": [
+    "ifrs-full_Equity",
+    "ifrs-full_EquityAttributableToOwnersOfParent",
+    "dart_TotalStockholdersEquity",
+  ],
+  "net_income": [
+    "ifrs-full_ProfitLoss",
+    "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+    "dart_ProfitLoss",
+    "dart_ProfitLossAttributableToOwnersOfParent",
+  ],
+  "operating_income": [
+    "dart_OperatingIncomeLoss",
+    "ifrs-full_ProfitLossFromOperatingActivities",
+  ],
+  "total_liabilities": ["ifrs-full_Liabilities", "dart_TotalLiabilities"],
 }
 SEC_ALLOWED_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "8-K", "20-F", "20-F/A", "6-K"}
 KNOWN_US_CIKS = {
@@ -58,7 +89,7 @@ SEC_TICKER_MAP: dict[str, str] | None = None
 
 
 def now_text() -> str:
-  return datetime.now().isoformat(timespec="seconds")
+  return datetime.now(KST).isoformat(timespec="seconds")
 
 
 def today_text() -> str:
@@ -86,6 +117,49 @@ def to_number(value: Any) -> float | None:
     return None
 
 
+def empty_financials(source: str) -> dict[str, Any]:
+  return {
+    "equity": None,
+    "net_income": None,
+    "operating_income": None,
+    "total_liabilities": None,
+    "shares_outstanding": None,
+    "bsns_year": None,
+    "report_code": None,
+    "source": source,
+  }
+
+
+def has_core_gaps(financials: dict[str, Any]) -> bool:
+  return financials.get("equity") is None or financials.get("net_income") is None
+
+
+def merge_financials(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+  merged = dict(primary)
+  used_fallback: list[str] = []
+  for key in [
+    "equity",
+    "net_income",
+    "operating_income",
+    "total_liabilities",
+    "shares_outstanding",
+    "bsns_year",
+    "report_code",
+  ]:
+    if merged.get(key) is None and fallback.get(key) is not None:
+      merged[key] = fallback.get(key)
+      used_fallback.append(key)
+
+  if used_fallback:
+    merged["source"] = {
+      "primary": primary.get("source"),
+      "fallback": fallback.get("source"),
+      "fallback_fields": used_fallback,
+    }
+
+  return merged
+
+
 def load_companies(market: str) -> list[dict[str, Any]]:
   result = execute(
     """SELECT code, country, name, market, currency, corp_code, cik
@@ -103,6 +177,26 @@ def load_metric_keys(market: str) -> set[tuple[str, str]]:
        FROM metrics_history
        WHERE country = ?
        GROUP BY code, country""",
+    [market],
+  )
+  return {(str(row["code"]), str(row["country"])) for row in result["rows"]}
+
+
+def load_incomplete_metric_keys(market: str) -> set[tuple[str, str]]:
+  result = execute(
+    """WITH latest AS (
+         SELECT code, country, MAX(snapshot_date) AS snapshot_date
+         FROM metrics_history
+         WHERE country = ?
+         GROUP BY code, country
+       )
+       SELECT m.code, m.country
+       FROM latest l
+       JOIN metrics_history m
+         ON m.code = l.code
+        AND m.country = l.country
+        AND m.snapshot_date = l.snapshot_date
+       WHERE m.equity IS NULL OR m.net_income IS NULL""",
     [market],
   )
   return {(str(row["code"]), str(row["country"])) for row in result["rows"]}
@@ -238,14 +332,66 @@ def fetch_kr_quote(code: str) -> dict[str, Any]:
   return {"price": None, "market_cap": None, "shares": None}
 
 
-def match_account(items: list[dict[str, Any]], patterns: list[str]) -> float | None:
+def account_text(item: dict[str, Any], key: str) -> str:
+  return str(item.get(key) or "").replace(" ", "").strip()
+
+
+def clean_account_name(item: dict[str, Any]) -> str:
+  name = str(item.get("account_nm") or "")
+  return (
+    name.replace("계산에 참여한 계정 펼치기", "")
+    .replace(" ", "")
+    .strip()
+  )
+
+
+def item_amount(item: dict[str, Any]) -> float | None:
+  for key in ["thstrm_amount", "thstrm_add_amount"]:
+    value = to_number(item.get(key))
+    if value is not None:
+      return value
+  return None
+
+
+def match_account(items: list[dict[str, Any]], key: str, patterns: list[str]) -> float | None:
+  statement_hints = {
+    "equity": ["BS"],
+    "total_liabilities": ["BS"],
+    "net_income": ["IS", "CIS"],
+    "operating_income": ["IS", "CIS"],
+  }
+  statement_items = [
+    item
+    for item in items
+    if not statement_hints.get(key)
+    or str(item.get("sj_div") or "") in statement_hints[key]
+  ]
+  candidates = statement_items or items
+  id_patterns = ACCOUNT_ID_PATTERNS.get(key, [])
+
+  for item in candidates:
+    account_id = account_text(item, "account_id")
+    if account_id and account_id in id_patterns:
+      amount = item_amount(item)
+      if amount is not None:
+        return amount
+
   for item in items:
-    if item.get("account_nm") in patterns:
-      return to_number(item.get("thstrm_amount"))
+    name = clean_account_name(item)
+    if name in [pattern.replace(" ", "") for pattern in patterns]:
+      amount = item_amount(item)
+      if amount is not None:
+        return amount
+
   for pattern in patterns:
-    for item in items:
-      if pattern in str(item.get("account_nm") or ""):
-        return to_number(item.get("thstrm_amount"))
+    compact_pattern = pattern.replace(" ", "")
+    for item in candidates:
+      name = clean_account_name(item)
+      if compact_pattern in name:
+        amount = item_amount(item)
+        if amount is not None:
+          return amount
+
   return None
 
 
@@ -293,7 +439,7 @@ def fetch_dart_financials(company: dict[str, Any]) -> dict[str, Any]:
 
         for key, patterns in ACCOUNT_PATTERNS.items():
           if output[key] is None:
-            output[key] = match_account(items, patterns)
+            output[key] = match_account(items, key, patterns)
 
         output["bsns_year"] = str(try_year)
         output["report_code"] = report_code
@@ -358,6 +504,145 @@ def fetch_yahoo_shares(symbol: str) -> float | None:
       return to_number((values[0].get("reportedValue") or {}).get("raw"))
 
   return None
+
+
+def latest_yahoo_value(results: list[dict[str, Any]], item_type: str) -> tuple[float | None, str | None]:
+  values_by_type: dict[str, list[dict[str, Any]]] = {}
+  for item in results:
+    meta_type = ((item.get("meta") or {}).get("type") or [None])[0]
+    if meta_type:
+      values_by_type[str(meta_type)] = item.get(str(meta_type)) or []
+
+  values = [
+    row
+    for row in values_by_type.get(item_type, [])
+    if ((row.get("reportedValue") or {}).get("raw") is not None)
+  ]
+  values.sort(key=lambda row: str(row.get("asOfDate") or ""), reverse=True)
+  if not values:
+    return None, None
+
+  value = to_number((values[0].get("reportedValue") or {}).get("raw"))
+  return value, str(values[0].get("asOfDate") or "") or None
+
+
+def fetch_yahoo_financials(symbol: str) -> dict[str, Any]:
+  types = [
+    "annualStockholdersEquity",
+    "annualNetIncome",
+    "annualOperatingIncome",
+    "annualTotalLiabilitiesNetMinorityInterest",
+  ]
+  response = requests.get(
+    f"https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
+    params={
+      "symbol": symbol,
+      "type": ",".join(types),
+      "period1": 0,
+      "period2": int(time.time()),
+    },
+    headers={"User-Agent": "Mozilla/5.0"},
+    timeout=20,
+  )
+  response.raise_for_status()
+  results = (response.json().get("timeseries") or {}).get("result") or []
+  output = empty_financials("yahoo_timeseries")
+  field_map = {
+    "equity": "annualStockholdersEquity",
+    "net_income": "annualNetIncome",
+    "operating_income": "annualOperatingIncome",
+    "total_liabilities": "annualTotalLiabilitiesNetMinorityInterest",
+  }
+  dates: list[str] = []
+
+  for key, item_type in field_map.items():
+    value, as_of = latest_yahoo_value(results, item_type)
+    output[key] = value
+    if as_of:
+      dates.append(as_of)
+
+  if dates:
+    latest_date = max(dates)
+    output["bsns_year"] = latest_date[:4]
+    output["report_code"] = "yahoo_annual"
+
+  return output
+
+
+def fnguide_number(value: str) -> float | None:
+  number = to_number(value)
+  return number * 100_000_000 if number is not None else None
+
+
+def latest_table_value(table: Any, labels: list[str]) -> tuple[float | None, str | None]:
+  rows = table.find_all("tr")
+  if not rows:
+    return None, None
+
+  headers = [cell.get_text(" ", strip=True) for cell in rows[0].find_all(["th", "td"])]
+  for row in rows[1:]:
+    cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+    if not cells:
+      continue
+    label = cells[0].replace("계산에 참여한 계정 펼치기", "").replace(" ", "")
+    if label not in [item.replace(" ", "") for item in labels]:
+      continue
+
+    for index in range(len(cells) - 1, 0, -1):
+      header = headers[index] if index < len(headers) else None
+      if not header or "/" not in str(header):
+        continue
+      value = fnguide_number(cells[index])
+      if value is None:
+        continue
+      year = str(header).split("/", 1)[0] if header else None
+      return value, year
+
+  return None, None
+
+
+def fetch_fnguide_financials(company: dict[str, Any]) -> dict[str, Any]:
+  code = str(company.get("code") or "").zfill(6)
+  response = requests.get(
+    "https://comp.fnguide.com/SVO2/ASP/SVD_Finance.asp",
+    params={"pGB": "1", "gicode": f"A{code}"},
+    headers={"User-Agent": "Mozilla/5.0"},
+    timeout=20,
+  )
+  response.raise_for_status()
+  soup = BeautifulSoup(response.text, "html.parser")
+  tables = soup.find_all("table")
+  output = empty_financials("fnguide/annual")
+
+  if len(tables) >= 1:
+    output["net_income"], income_year = latest_table_value(
+      tables[0],
+      ["당기순이익", "당기순손익"],
+    )
+    output["operating_income"], operating_year = latest_table_value(
+      tables[0],
+      ["영업이익", "영업이익(발표기준)"],
+    )
+  else:
+    income_year = None
+    operating_year = None
+
+  if len(tables) >= 3:
+    output["equity"], equity_year = latest_table_value(tables[2], ["자본", "자본총계"])
+    output["total_liabilities"], liability_year = latest_table_value(
+      tables[2],
+      ["부채", "부채총계"],
+    )
+  else:
+    equity_year = None
+    liability_year = None
+
+  years = [year for year in [income_year, operating_year, equity_year, liability_year] if year]
+  if years:
+    output["bsns_year"] = max(years)
+    output["report_code"] = "fnguide_annual"
+
+  return output
 
 
 def latest_fact(
@@ -501,13 +786,41 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
 
   if country == "KR":
     quote = fetch_kr_quote(code)
-    financials = fetch_dart_financials(company)
+    try:
+      financials = fetch_dart_financials(company)
+    except Exception as error:
+      financials = empty_financials(f"dart_error/{error}")
+    if has_core_gaps(financials):
+      try:
+        financials = merge_financials(financials, fetch_fnguide_financials(company))
+      except Exception as error:
+        if isinstance(financials.get("source"), dict):
+          financials["source"]["fallback_error"] = f"fnguide/{error}"
+        else:
+          financials["source"] = {
+            "primary": financials.get("source"),
+            "fallback_error": f"fnguide/{error}",
+          }
     price = quote.get("price")
     shares = quote.get("shares")
     market_cap = quote.get("market_cap")
   else:
     quote = fetch_stooq_quote(code)
-    financials = fetch_sec_financials(company)
+    try:
+      financials = fetch_sec_financials(company)
+    except Exception as error:
+      financials = empty_financials(f"sec_error/{error}")
+    if has_core_gaps(financials):
+      try:
+        financials = merge_financials(financials, fetch_yahoo_financials(code))
+      except Exception as error:
+        if isinstance(financials.get("source"), dict):
+          financials["source"]["fallback_error"] = f"yahoo_timeseries/{error}"
+        else:
+          financials["source"] = {
+            "primary": financials.get("source"),
+            "fallback_error": f"yahoo_timeseries/{error}",
+          }
     price = quote.get("price")
     shares = financials.get("shares_outstanding")
     share_source = "sec_companyfacts"
@@ -626,11 +939,12 @@ def main() -> None:
   parser.add_argument("--codes", help="Comma-separated stock codes to process, bypassing shard filter")
   parser.add_argument(
     "--selection",
-    choices=["all", "missing", "existing"],
+    choices=["all", "missing", "existing", "incomplete"],
     default="all",
-    help="all companies, companies without metrics, or companies already having metrics",
+    help="all companies, companies without metrics, companies already having metrics, or companies with missing core financials",
   )
   parser.add_argument("--limit", type=int)
+  parser.add_argument("--run-id")
   parser.add_argument("--dry-run", action="store_true")
   args = parser.parse_args()
 
@@ -679,6 +993,13 @@ def main() -> None:
           for company in companies
           if (str(company["code"]), str(company["country"])) in metric_keys
       ]
+    elif args.selection == "incomplete":
+      incomplete_keys = load_incomplete_metric_keys(args.market)
+      companies = [
+        company
+        for company in companies
+        if (str(company["code"]), str(company["country"])) in incomplete_keys
+      ]
 
   if args.market == "US":
     companies = hydrate_us_ciks(companies, persist=not args.dry_run)
@@ -688,12 +1009,24 @@ def main() -> None:
   if args.limit:
     companies = companies[: args.limit]
 
-  run_id = str(uuid.uuid4())
+  run_id = args.run_id or str(uuid.uuid4())
   if not args.dry_run:
     execute(
       """INSERT INTO batch_runs
          (id, job_name, market, shard_index, shard_count, status, started_at)
-         VALUES (?, ?, ?, ?, ?, 'running', ?)""",
+         VALUES (?, ?, ?, ?, ?, 'running', ?)
+         ON CONFLICT(id) DO UPDATE SET
+           job_name = excluded.job_name,
+           market = excluded.market,
+           shard_index = excluded.shard_index,
+           shard_count = excluded.shard_count,
+           status = excluded.status,
+           started_at = excluded.started_at,
+           completed_at = NULL,
+           processed = 0,
+           succeeded = 0,
+           failed = 0,
+           error_sample = NULL""",
       [run_id, "update_metrics", args.market, args.shard_index, args.shard_count, now_text()],
     )
 

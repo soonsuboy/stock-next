@@ -34,7 +34,7 @@ on:
         required: false
         default: ""
       selection:
-        description: "Metric selection: all, missing, or existing"
+        description: "Metric selection: all, missing, existing, or incomplete"
         required: false
         default: "all"
         type: choice
@@ -42,6 +42,11 @@ on:
           - all
           - missing
           - existing
+          - incomplete
+      request_id:
+        description: "Optional pre-created batch_runs id"
+        required: false
+        default: ""
       dry_run:
         description: "Fetch and print without writing to Turso"
         required: false
@@ -86,6 +91,7 @@ jobs:
           limit="${{ inputs.limit }}"
           codes="${{ inputs.codes }}"
           selection="${{ inputs.selection }}"
+          request_id="${{ inputs.request_id }}"
           dry_run="${{ inputs.dry_run }}"
 
           company_extra=()
@@ -101,6 +107,10 @@ jobs:
           fi
           if [ -n "$selection" ]; then
             metric_extra+=(--selection "$selection")
+          fi
+          if [ -n "$request_id" ]; then
+            metric_extra+=(--run-id "$request_id")
+            price_extra+=(--run-id "$request_id")
           fi
           if [ "$dry_run" = "true" ]; then
             company_extra+=(--dry-run)

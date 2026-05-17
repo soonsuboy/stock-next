@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { requireAdminApi } from "@/lib/admin";
 import { getManualBatchLimit } from "@/lib/admin-data";
+import {
+  createBatchRunRequest,
+  markBatchRunRequestFailed,
+} from "@/lib/batch-run-log";
 import { dispatchStockBatchWorkflow } from "@/lib/github-actions";
 
 type Market = "KR" | "US";
-type Selection = "missing" | "existing";
+type Selection = "missing" | "existing" | "incomplete";
 
 function isMarket(value: unknown): value is Market {
   return value === "KR" || value === "US";
 }
 
 function isSelection(value: unknown): value is Selection {
-  return value === "missing" || value === "existing";
+  return value === "missing" || value === "existing" || value === "incomplete";
 }
 
 export async function POST(request: Request) {
@@ -49,11 +54,19 @@ export async function POST(request: Request) {
   }
 
   const mode = body.market.toLowerCase() as "kr" | "us";
+  const requestId = randomUUID();
+  await createBatchRunRequest({
+    id: requestId,
+    jobName: "update_metrics",
+    market: body.market,
+    message: `manual dispatch requested selection=${body.selection} limit=${limit}`,
+  });
 
   const result = await dispatchStockBatchWorkflow({
     mode,
     limit: String(limit),
     selection: body.selection,
+    requestId,
   });
 
   if (result.ok) {
@@ -65,10 +78,13 @@ export async function POST(request: Request) {
         workflowId: result.workflow.workflowId,
         ref: result.workflow.ref,
         inputs: result.inputs,
+        requestId,
       },
       { status: 202 }
     );
   }
+
+  await markBatchRunRequestFailed(requestId, `${result.error}\n${result.details}`);
 
   return NextResponse.json(
     {

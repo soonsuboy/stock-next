@@ -30,7 +30,7 @@ DEFAULTS = {
 
 
 def now_text() -> str:
-  return datetime.now().isoformat(timespec="seconds")
+  return datetime.now(KST).isoformat(timespec="seconds")
 
 
 def bool_setting(settings: dict[str, str], key: str) -> bool:

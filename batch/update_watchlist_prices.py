@@ -221,16 +221,29 @@ def main() -> None:
   parser.add_argument("--market", choices=["KR", "US", "ALL"], default="ALL")
   parser.add_argument("--limit", type=int)
   parser.add_argument("--dry-run", action="store_true")
+  parser.add_argument("--run-id")
   args = parser.parse_args()
 
   targets = load_watchlist_targets(args.market, args.limit)
-  run_id = str(uuid.uuid4())
+  run_id = args.run_id or str(uuid.uuid4())
 
   if not args.dry_run:
     execute(
       """INSERT INTO batch_runs
          (id, job_name, market, shard_index, shard_count, status, started_at)
-         VALUES (?, ?, ?, NULL, NULL, 'running', ?)""",
+         VALUES (?, ?, ?, NULL, NULL, 'running', ?)
+         ON CONFLICT(id) DO UPDATE SET
+           job_name = excluded.job_name,
+           market = excluded.market,
+           shard_index = excluded.shard_index,
+           shard_count = excluded.shard_count,
+           status = excluded.status,
+           started_at = excluded.started_at,
+           completed_at = NULL,
+           processed = 0,
+           succeeded = 0,
+           failed = 0,
+           error_sample = NULL""",
       [run_id, "update_watchlist_prices", args.market, now_text()],
     )
 

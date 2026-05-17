@@ -12,6 +12,7 @@ export interface BatchCoverage {
   companyCount: number;
   metricsCompanyCount: number;
   missingMetricsCount: number;
+  incompleteMetricsCount: number;
   latestSnapshot: string | null;
   metricsRowCount: number;
 }
@@ -58,35 +59,42 @@ export function getManualBatchLimit() {
 }
 
 export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
-  const [coverageResult, runsResult, settings, schedulerMeta] = await Promise.all([
+  const [
+    companiesResult,
+    metricsResult,
+    incompleteResult,
+    runsResult,
+    settings,
+    schedulerMeta,
+  ] = await Promise.all([
     db.execute({
-      sql: `WITH metric_companies AS (
-              SELECT code, country
+      sql: `SELECT country, COUNT(*) AS company_count
+            FROM companies
+            GROUP BY country`,
+    }),
+    db.execute({
+      sql: `SELECT
+              country,
+              COUNT(DISTINCT code) AS metrics_company_count,
+              COUNT(*) AS metrics_row_count,
+              MAX(snapshot_date) AS latest_snapshot
+            FROM metrics_history
+            GROUP BY country`,
+    }),
+    db.execute({
+      sql: `WITH latest AS (
+              SELECT code, country, MAX(snapshot_date) AS snapshot_date
               FROM metrics_history
               GROUP BY code, country
-            ),
-            metric_summary AS (
-              SELECT
-                country,
-                MAX(snapshot_date) AS latest_snapshot,
-                COUNT(*) AS metrics_row_count
-              FROM metrics_history
-              GROUP BY country
             )
-            SELECT
-              c.country,
-              COUNT(*) AS company_count,
-              SUM(CASE WHEN mc.code IS NOT NULL THEN 1 ELSE 0 END) AS metrics_company_count,
-              SUM(CASE WHEN mc.code IS NULL THEN 1 ELSE 0 END) AS missing_metrics_count,
-              ms.latest_snapshot,
-              COALESCE(ms.metrics_row_count, 0) AS metrics_row_count
-            FROM companies c
-            LEFT JOIN metric_companies mc
-              ON c.code = mc.code AND c.country = mc.country
-            LEFT JOIN metric_summary ms
-              ON c.country = ms.country
-            GROUP BY c.country
-            ORDER BY c.country`,
+            SELECT m.country, COUNT(*) AS incomplete_metrics_count
+            FROM latest l
+            JOIN metrics_history m
+              ON m.code = l.code
+             AND m.country = l.country
+             AND m.snapshot_date = l.snapshot_date
+            WHERE m.equity IS NULL OR m.net_income IS NULL
+            GROUP BY m.country`,
     }),
     db.execute({
       sql: `SELECT
@@ -104,23 +112,49 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
               error_sample
             FROM batch_runs
             ORDER BY COALESCE(started_at, completed_at) DESC
-            LIMIT 20`,
+            LIMIT 100`,
     }),
     getBatchSettings(),
     getBatchSchedulerMeta(),
   ]);
 
   const workflow = getWorkflowConfig();
+  const metricsByCountry = new Map(
+    metricsResult.rows.map((row) => [
+      String(row.country),
+      {
+        metricsCompanyCount: toNumber(row.metrics_company_count),
+        metricsRowCount: toNumber(row.metrics_row_count),
+        latestSnapshot: toStringOrNull(row.latest_snapshot),
+      },
+    ])
+  );
+  const incompleteByCountry = new Map(
+    incompleteResult.rows.map((row) => [
+      String(row.country),
+      toNumber(row.incomplete_metrics_count),
+    ])
+  );
 
   return {
-    coverage: coverageResult.rows.map((row) => ({
-      country: String(row.country),
-      companyCount: toNumber(row.company_count),
-      metricsCompanyCount: toNumber(row.metrics_company_count),
-      missingMetricsCount: toNumber(row.missing_metrics_count),
-      latestSnapshot: toStringOrNull(row.latest_snapshot),
-      metricsRowCount: toNumber(row.metrics_row_count),
-    })),
+    coverage: companiesResult.rows.map((row) => {
+      const country = String(row.country);
+      const companyCount = toNumber(row.company_count);
+      const metrics = metricsByCountry.get(country) || {
+        metricsCompanyCount: 0,
+        metricsRowCount: 0,
+        latestSnapshot: null,
+      };
+      return {
+        country,
+        companyCount,
+        metricsCompanyCount: metrics.metricsCompanyCount,
+        missingMetricsCount: Math.max(0, companyCount - metrics.metricsCompanyCount),
+        incompleteMetricsCount: incompleteByCountry.get(country) || 0,
+        latestSnapshot: metrics.latestSnapshot,
+        metricsRowCount: metrics.metricsRowCount,
+      };
+    }),
     recentRuns: runsResult.rows.map((row) => ({
       id: String(row.id),
       jobName: String(row.job_name),

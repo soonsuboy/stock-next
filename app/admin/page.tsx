@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import AdminDashboard from "@/app/admin/AdminDashboard";
 import { getAdminUser, isAdminConfigured } from "@/lib/admin";
-import { getAdminBatchStatus } from "@/lib/admin-data";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function AdminPage() {
@@ -39,6 +38,5 @@ export default async function AdminPage() {
     );
   }
 
-  const status = await getAdminBatchStatus();
-  return <AdminDashboard initialStatus={status} />;
+  return <AdminDashboard initialStatus={null} />;
 }

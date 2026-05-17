@@ -236,6 +236,10 @@ def migrate(clear_legacy_watchlist: bool) -> None:
     "CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_code_country ON metrics_history(code, country)",
     "CREATE INDEX IF NOT EXISTS idx_metrics_snapshot ON metrics_history(snapshot_date)",
+    "CREATE INDEX IF NOT EXISTS idx_metrics_country_code_snapshot ON metrics_history(country, code, snapshot_date)",
+    "CREATE INDEX IF NOT EXISTS idx_metrics_country_snapshot ON metrics_history(country, snapshot_date)",
+    "CREATE INDEX IF NOT EXISTS idx_batch_runs_started ON batch_runs(started_at)",
+    "CREATE INDEX IF NOT EXISTS idx_batch_runs_completed ON batch_runs(completed_at)",
     "CREATE INDEX IF NOT EXISTS idx_batch_items_run ON batch_run_items(run_id)",
   ]:
     execute(statement)

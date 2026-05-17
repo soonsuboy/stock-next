@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
+import {
+  createBatchRunRequest,
+  markBatchRunRequestFailed,
+} from "@/lib/batch-run-log";
 import { dispatchStockBatchWorkflow } from "@/lib/github-actions";
 import { getBatchSettings } from "@/lib/batch-settings";
 
@@ -11,6 +16,8 @@ interface WatchlistMetricTarget {
   country: Country;
   name: string;
   collectedAt: string | null;
+  equity: number | null;
+  netIncome: number | null;
 }
 
 function getWatchlistBatchMaxCodes() {
@@ -60,7 +67,9 @@ export async function POST() {
               c.code,
               c.country,
               c.name,
-              m.created_at AS collected_at
+              m.created_at AS collected_at,
+              m.equity,
+              m.net_income
             FROM user_watchlist uw
             JOIN companies c
               ON uw.code = c.code AND uw.country = c.country
@@ -90,13 +99,19 @@ export async function POST() {
         name: typeof row.name === "string" ? row.name : String(row.code),
         collectedAt:
           typeof row.collected_at === "string" ? row.collected_at : null,
+        equity: typeof row.equity === "number" ? row.equity : null,
+        netIncome: typeof row.net_income === "number" ? row.net_income : null,
       }));
 
+    const hasCoreGaps = (target: WatchlistMetricTarget) =>
+      target.equity === null || target.netIncome === null;
     const skippedRecent = targets.filter((target) =>
-      isRecentlyCollected(target.collectedAt, skipRecentHours)
+      isRecentlyCollected(target.collectedAt, skipRecentHours) && !hasCoreGaps(target)
     );
     const staleTargets = targets.filter(
-      (target) => !isRecentlyCollected(target.collectedAt, skipRecentHours)
+      (target) =>
+        !isRecentlyCollected(target.collectedAt, skipRecentHours) ||
+        hasCoreGaps(target)
     );
 
     if (staleTargets.length === 0) {
@@ -138,19 +153,30 @@ export async function POST() {
       country: Country;
       count: number;
       codes: string[];
+      requestId: string;
     }> = [];
 
     for (const country of ["KR", "US"] as const) {
       const codes = codesByCountry[country];
       if (codes.length === 0) continue;
 
+      const requestId = randomUUID();
+      await createBatchRunRequest({
+        id: requestId,
+        jobName: "update_metrics",
+        market: country,
+        message: `watchlist reaggregate requested codes=${codes.length}`,
+      });
+
       const dispatch = await dispatchStockBatchWorkflow({
         mode: country.toLowerCase() as "kr" | "us",
         codes: codes.join(","),
         selection: "all",
+        requestId,
       });
 
       if (!dispatch.ok) {
+        await markBatchRunRequestFailed(requestId, `${dispatch.error}\n${dispatch.details}`);
         return NextResponse.json(
           {
             error: dispatch.error,
@@ -166,6 +192,7 @@ export async function POST() {
         country,
         count: codes.length,
         codes,
+        requestId,
       });
     }
 

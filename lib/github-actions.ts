@@ -1,10 +1,11 @@
 export interface StockBatchDispatchInputs {
-  mode: "kr" | "us";
+  mode: "kr" | "us" | "watchlist_prices";
   codes?: string;
   limit?: string;
-  selection?: "all" | "missing" | "existing";
+  selection?: "all" | "missing" | "existing" | "incomplete";
   shardIndex?: string;
   shardCount?: string;
+  requestId?: string;
   dryRun?: "true" | "false";
 }
 
@@ -43,6 +44,7 @@ export async function dispatchStockBatchWorkflow(
     shard_index: inputs.shardIndex || "0",
     shard_count: inputs.shardCount || "1",
     codes: inputs.codes || "",
+    request_id: inputs.requestId || "",
     dry_run: inputs.dryRun || "false",
   };
 

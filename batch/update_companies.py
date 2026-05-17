@@ -5,6 +5,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -14,6 +15,7 @@ UA = (
   os.environ.get("SEC_USER_AGENT")
   or "soonsuboy-stock-next/1.0 soonsuboy@example.com"
 )
+KST = ZoneInfo("Asia/Seoul")
 
 
 def normalize_us_symbol(symbol: str) -> str:
@@ -21,7 +23,7 @@ def normalize_us_symbol(symbol: str) -> str:
 
 
 def now_text() -> str:
-  return datetime.now().isoformat(timespec="seconds")
+  return datetime.now(KST).isoformat(timespec="seconds")
 
 
 def fetch_kr_companies() -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:

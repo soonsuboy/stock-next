@@ -42,12 +42,13 @@ function TriangleDiagram({ stock }: { stock: AnalysisData }) {
         </span>
       </div>
 
-      <svg
-        viewBox="0 0 720 620"
-        className="h-auto min-h-[760px] w-full"
-        role="img"
-        aria-label={`${stock.name} 시가총액, 자본총계, 당기순이익, PBR, ROE, PER 삼각형 다이어그램`}
-      >
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <svg
+          viewBox="0 0 720 620"
+          className="h-auto min-h-[760px] w-[170%] max-w-none sm:w-full"
+          role="img"
+          aria-label={`${stock.name} 시가총액, 자본총계, 당기순이익, PBR, ROE, PER 삼각형 다이어그램`}
+        >
         <polygon
           points="360,98 132,520 588,520"
           fill="#eef4f9"
@@ -112,7 +113,8 @@ function TriangleDiagram({ stock }: { stock: AnalysisData }) {
           <tspan x="552" dy="0">PER</tspan>
           <tspan x="552" dy="22">{stock.per?.toFixed(2)}</tspan>
         </text>
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 }

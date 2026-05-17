@@ -169,7 +169,8 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   };
 
   const triggerTelegram = async (
-    mode: "telegram_dialogs" | "telegram_collect" | "telegram_summarize"
+    mode: "telegram_dialogs" | "telegram_collect" | "telegram_summarize",
+    backfill = false
   ) => {
     setTelegramSaving(true);
     setTelegramMessage("");
@@ -178,14 +179,16 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       const response = await fetch("/api/admin/telegram/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, backfill }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "텔레그램 배치 요청 실패");
       }
       setTelegramMessage(
-        "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
+        backfill
+          ? "텔레그램 이미지 백필 수집을 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
+          : "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
       );
       await refreshStatus();
     } catch (err) {
@@ -744,6 +747,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
             >
               대화 수동 수집
+            </button>
+            <button
+              type="button"
+              disabled={telegramSaving}
+              onClick={() => triggerTelegram("telegram_collect", true)}
+              className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              이미지 백필 수집
             </button>
             <button
               type="button"

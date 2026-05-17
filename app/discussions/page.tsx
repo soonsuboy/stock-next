@@ -25,7 +25,7 @@ interface DiscussionMessage {
     mimeType: string;
     fileName: string;
     sizeBytes: number;
-    dataUrl: string;
+    mediaUrl: string;
   };
 }
 
@@ -341,11 +341,11 @@ export default function DiscussionsPage() {
                             {message.text}
                           </p>
                         )}
-                        {message.media?.dataUrl &&
+                        {message.media?.mediaUrl &&
                           message.media.mimeType.startsWith("image/") && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={message.media.dataUrl}
+                            src={message.media.mediaUrl}
                             alt={message.media.fileName || "telegram media"}
                             className="mt-3 max-h-96 rounded-lg border border-slate-200 object-contain dark:border-slate-800"
                           />

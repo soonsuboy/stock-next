@@ -13,6 +13,7 @@ export interface StockBatchDispatchInputs {
   shardCount?: string;
   requestId?: string;
   telegramDate?: string;
+  telegramBackfill?: "true" | "false";
   dryRun?: "true" | "false";
 }
 
@@ -53,6 +54,7 @@ export async function dispatchStockBatchWorkflow(
     codes: inputs.codes || "",
     request_id: inputs.requestId || "",
     telegram_date: inputs.telegramDate || "",
+    telegram_backfill: inputs.telegramBackfill || "false",
     dry_run: inputs.dryRun || "false",
   };
 

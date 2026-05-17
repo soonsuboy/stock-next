@@ -208,6 +208,7 @@ async def collect_messages(
   limit_per_chat: int,
   media_enabled: bool,
   media_max_bytes: int,
+  backfill: bool = False,
 ) -> tuple[int, list[str]]:
   chats = enabled_chats()
   if not chats:
@@ -227,10 +228,11 @@ async def collect_messages(
       entity = await client.get_entity(int(chat_id))
       max_message_id = last_message_id
       collected: list[Any] = []
+      min_id = 0 if backfill else last_message_id if last_message_id > 0 else 0
 
       async for message in client.iter_messages(
         entity,
-        min_id=last_message_id if last_message_id > 0 else 0,
+        min_id=min_id,
         limit=limit_per_chat,
       ):
         if not message or not message.id:
@@ -238,7 +240,7 @@ async def collect_messages(
         message_date = message.date
         if message_date and message_date.tzinfo is None:
           message_date = message_date.replace(tzinfo=timezone.utc)
-        if last_message_id <= 0 and message_date and message_date < cutoff:
+        if (backfill or last_message_id <= 0) and message_date and message_date < cutoff:
           continue
         collected.append(message)
 
@@ -598,6 +600,7 @@ async def run_mode(args: argparse.Namespace) -> int:
       int_value(settings.get("telegram_message_limit"), 200, 10, 1000),
       bool_value(settings.get("telegram_media_enabled"), True),
       int_value(settings.get("telegram_media_max_bytes"), 750000, 0, 3000000),
+      False,
     )
     if bool_value(settings.get("telegram_summary_enabled"), True):
       for date_key in dates or [today_key()]:
@@ -625,6 +628,7 @@ async def run_mode(args: argparse.Namespace) -> int:
       limit,
       media,
       media_max_bytes,
+      args.backfill,
     )
     if args.summarize:
       for date_key in dates or [today_key()]:
@@ -648,6 +652,7 @@ def main() -> None:
   parser.add_argument("--limit", type=int)
   parser.add_argument("--media", action=argparse.BooleanOptionalAction)
   parser.add_argument("--media-max-bytes", type=int)
+  parser.add_argument("--backfill", action="store_true")
   parser.add_argument("--summarize", action="store_true")
   parser.add_argument("--run-id")
   args = parser.parse_args()

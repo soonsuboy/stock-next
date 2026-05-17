@@ -54,6 +54,11 @@ on:
         description: "Optional YYYY-MM-DD date for telegram_summarize"
         required: false
         default: ""
+      telegram_backfill:
+        description: "For telegram_collect, re-read recent messages even if last_message_id is already advanced"
+        required: false
+        default: false
+        type: boolean
       dry_run:
         description: "Fetch and print without writing to Turso"
         required: false
@@ -109,6 +114,7 @@ jobs:
           selection="${{ inputs.selection }}"
           request_id="${{ inputs.request_id }}"
           telegram_date="${{ inputs.telegram_date }}"
+          telegram_backfill="${{ inputs.telegram_backfill }}"
           dry_run="${{ inputs.dry_run }}"
 
           company_extra=()
@@ -158,6 +164,9 @@ jobs:
             telegram_extra=(--summarize)
             if [ -n "$request_id" ]; then
               telegram_extra+=(--run-id "$request_id")
+            fi
+            if [ "$telegram_backfill" = "true" ]; then
+              telegram_extra+=(--backfill)
             fi
             python batch/telegram_sync.py --mode collect "${telegram_extra[@]}"
           fi

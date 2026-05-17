@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { createTelegramMediaToken } from "@/lib/telegram-media-token";
 
 function parseJsonArray(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return [];
@@ -70,13 +71,19 @@ export async function GET(request: NextRequest) {
                 media.mime_type,
                 media.file_name,
                 media.size_bytes,
-                media.data_base64
+                media.media_index,
+                CASE
+                  WHEN media.data_base64 IS NOT NULL AND media.data_base64 <> ''
+                  THEN 1
+                  ELSE 0
+                END AS media_available
               FROM telegram_messages m
               JOIN telegram_chats c
                 ON c.chat_id = m.chat_id AND c.enabled = 1
               LEFT JOIN telegram_media media
                 ON media.chat_id = m.chat_id
                AND media.message_id = m.message_id
+               AND media.media_index = 0
               WHERE m.date_key = ?
                 AND (? = '' OR m.chat_id = ?)
               ORDER BY m.message_date, m.message_id
@@ -114,15 +121,25 @@ export async function GET(request: NextRequest) {
       text: typeof row.text === "string" ? row.text : "",
       hasMedia: Boolean(row.has_media),
       media:
-        typeof row.data_base64 === "string" && row.data_base64
+        Number(row.media_available || 0) === 1
           ? {
               mimeType:
-                typeof row.mime_type === "string" ? row.mime_type : "image/jpeg",
+                typeof row.mime_type === "string" && row.mime_type
+                  ? row.mime_type
+                  : "image/jpeg",
               fileName: typeof row.file_name === "string" ? row.file_name : "",
               sizeBytes: Number(row.size_bytes || 0),
-              dataUrl: `data:${
-                typeof row.mime_type === "string" ? row.mime_type : "image/jpeg"
-              };base64,${row.data_base64}`,
+              mediaUrl: `/api/discussions/media?chatId=${encodeURIComponent(
+                String(row.chat_id)
+              )}&messageId=${encodeURIComponent(
+                String(row.message_id)
+              )}&mediaIndex=${encodeURIComponent(
+                String(row.media_index || 0)
+              )}&token=${createTelegramMediaToken(
+                String(row.chat_id),
+                String(row.message_id),
+                String(row.media_index || 0)
+              )}`,
             }
           : null,
     }));

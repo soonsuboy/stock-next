@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const { response } = await requireAdminApi();
   if (response) return response;
 
-  let body: { mode?: unknown; date?: unknown };
+  let body: { mode?: unknown; date?: unknown; backfill?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -40,13 +40,16 @@ export async function POST(request: Request) {
     id: requestId,
     jobName: "telegram_sync",
     market: "TELEGRAM",
-    message: `telegram dispatch requested mode=${body.mode}`,
+    message: `telegram dispatch requested mode=${body.mode} backfill=${Boolean(
+      body.backfill
+    )}`,
   });
 
   const result = await dispatchStockBatchWorkflow({
     mode: body.mode,
     requestId,
     telegramDate: typeof body.date === "string" ? body.date : "",
+    telegramBackfill: body.backfill === true ? "true" : "false",
   });
 
   if (!result.ok) {

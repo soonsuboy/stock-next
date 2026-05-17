@@ -15,6 +15,7 @@ interface WatchlistMetricTarget {
   code: string;
   country: Country;
   name: string;
+  watchlistId: number;
   collectedAt: string | null;
   equity: number | null;
   netIncome: number | null;
@@ -28,6 +29,11 @@ function getWatchlistBatchMaxCodes() {
 
 function isCountry(value: unknown): value is Country {
   return value === "KR" || value === "US";
+}
+
+function normalizeCode(code: string, country: Country) {
+  const trimmed = code.trim();
+  return country === "KR" ? trimmed.padStart(6, "0") : trimmed.toUpperCase();
 }
 
 function parseCollectedAt(value: unknown) {
@@ -48,15 +54,52 @@ function isRecentlyCollected(value: unknown, skipRecentHours: number) {
   return Date.now() - timestamp <= skipRecentHours * 60 * 60 * 1000;
 }
 
-export async function POST() {
+async function readManualTarget(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      id?: unknown;
+      code?: unknown;
+      country?: unknown;
+    };
+    const id = Number(body.id || 0);
+    const country = isCountry(body.country) ? body.country : null;
+    const code =
+      typeof body.code === "string" && country
+        ? normalizeCode(body.code, country)
+        : "";
+    return {
+      id: Number.isInteger(id) && id > 0 ? id : null,
+      code,
+      country,
+    };
+  } catch {
+    return { id: null, code: "", country: null };
+  }
+}
+
+export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
   const maxCodes = getWatchlistBatchMaxCodes();
   const settings = await getBatchSettings();
   const skipRecentHours = settings.watchlistSkipRecentHours;
+  const manualTarget = await readManualTarget(request);
+  const isManualSingleTarget = Boolean(
+    manualTarget.id || (manualTarget.code && manualTarget.country)
+  );
 
   try {
+    const where = ["uw.user_id = ?"];
+    const args: Array<string | number> = [user.id];
+    if (manualTarget.id) {
+      where.push("uw.id = ?");
+      args.push(manualTarget.id);
+    } else if (manualTarget.code && manualTarget.country) {
+      where.push("uw.code = ? AND uw.country = ?");
+      args.push(manualTarget.code, manualTarget.country);
+    }
+
     const result = await db.execute({
       sql: `WITH latest AS (
               SELECT code, country, MAX(snapshot_date) AS snapshot_date
@@ -64,6 +107,7 @@ export async function POST() {
               GROUP BY code, country
             )
             SELECT
+              uw.id AS watchlist_id,
               c.code,
               c.country,
               c.name,
@@ -79,15 +123,19 @@ export async function POST() {
               ON m.code = l.code
              AND m.country = l.country
              AND m.snapshot_date = l.snapshot_date
-            WHERE uw.user_id = ?
+            WHERE ${where.join(" AND ")}
             ORDER BY c.country, uw.added_at DESC`,
-      args: [user.id],
+      args,
     });
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { error: "관심종목이 없습니다." },
-        { status: 400 }
+        {
+          error: isManualSingleTarget
+            ? "해당 관심종목을 찾을 수 없습니다."
+            : "관심종목이 없습니다.",
+        },
+        { status: isManualSingleTarget ? 404 : 400 }
       );
     }
 
@@ -97,6 +145,7 @@ export async function POST() {
         code: String(row.code),
         country: row.country as Country,
         name: typeof row.name === "string" ? row.name : String(row.code),
+        watchlistId: Number(row.watchlist_id),
         collectedAt:
           typeof row.collected_at === "string" ? row.collected_at : null,
         equity: typeof row.equity === "number" ? row.equity : null,
@@ -113,8 +162,9 @@ export async function POST() {
         !isRecentlyCollected(target.collectedAt, skipRecentHours) ||
         hasCoreGaps(target)
     );
+    const dispatchTargets = isManualSingleTarget ? targets : staleTargets;
 
-    if (staleTargets.length === 0) {
+    if (dispatchTargets.length === 0) {
       return NextResponse.json({
         ok: true,
         message: `All watchlist companies were collected within ${skipRecentHours} hours`,
@@ -131,10 +181,10 @@ export async function POST() {
       });
     }
 
-    if (staleTargets.length > maxCodes) {
+    if (dispatchTargets.length > maxCodes) {
       return NextResponse.json(
         {
-          error: `${skipRecentHours}시간 이내 집계된 기업을 제외해도 재집계 대상이 ${staleTargets.length}개입니다. 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
+          error: `${skipRecentHours}시간 이내 집계된 기업을 제외해도 재집계 대상이 ${dispatchTargets.length}개입니다. 한 번에 최대 ${maxCodes}개까지 요청할 수 있습니다.`,
         },
         { status: 400 }
       );
@@ -145,7 +195,7 @@ export async function POST() {
       US: [],
     };
 
-    for (const target of staleTargets) {
+    for (const target of dispatchTargets) {
       codesByCountry[target.country].push(target.code);
     }
 
@@ -165,7 +215,9 @@ export async function POST() {
         id: requestId,
         jobName: "update_metrics",
         market: country,
-        message: `watchlist reaggregate requested codes=${codes.length}`,
+        message: isManualSingleTarget
+          ? `watchlist manual collect requested codes=${codes.length} including latest quote`
+          : `watchlist reaggregate requested codes=${codes.length}`,
       });
 
       const dispatch = await dispatchStockBatchWorkflow({
@@ -199,7 +251,10 @@ export async function POST() {
     return NextResponse.json(
       {
         ok: true,
-        message: "Watchlist batch workflow dispatched",
+        message: isManualSingleTarget
+          ? "Watchlist single company batch workflow dispatched"
+          : "Watchlist batch workflow dispatched",
+        manual: isManualSingleTarget,
         total: targets.length,
         dispatched,
         skippedRecent: skippedRecent.map((target) => ({

@@ -129,6 +129,9 @@ export default function WatchlistPage() {
   const [batchMessage, setBatchMessage] = useState("");
   const [batchError, setBatchError] = useState("");
   const [reaggregating, setReaggregating] = useState(false);
+  const [manualCollectingId, setManualCollectingId] = useState<number | null>(
+    null
+  );
 
   const fetchWatchlist = async () => {
     setLoading(true);
@@ -216,6 +219,67 @@ export default function WatchlistPage() {
       setBatchError(err instanceof Error ? err.message : "재집계 요청 중 오류 발생");
     } finally {
       setReaggregating(false);
+    }
+  };
+
+  const hasMissingMetricData = (stock: WatchlistStock) =>
+    stock.equity === null ||
+    stock.equity === undefined ||
+    stock.net_income === null ||
+    stock.net_income === undefined ||
+    stock.per === null ||
+    stock.per === undefined ||
+    stock.pbr === null ||
+    stock.pbr === undefined ||
+    stock.roe === null ||
+    stock.roe === undefined;
+
+  const handleManualCollectStock = async (stock: WatchlistStock) => {
+    if (manualCollectingId !== null) return;
+    if (
+      !window.confirm(
+        `${stock.name}의 재무제표와 최신 가격을 다시 수집하시겠습니까? 완료 후 새로고침하면 오늘 기준 가격/시가총액과 지표가 반영됩니다.`
+      )
+    ) {
+      return;
+    }
+
+    setManualCollectingId(stock.id);
+    setBatchMessage("");
+    setBatchError("");
+
+    try {
+      const response = await fetch("/api/watchlist/reaggregate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: stock.id,
+          code: stock.code,
+          country: stock.country,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "수동 수집 요청 실패");
+      }
+
+      const dispatched = data.dispatched || [];
+      const summary = dispatched
+        .map(
+          (item: { country: string; count: number }) =>
+            `${item.country} ${item.count}개`
+        )
+        .join(", ");
+      setBatchMessage(
+        `${stock.name} 수동 수집 배치를 요청했습니다${
+          summary ? `: ${summary}` : ""
+        }. 재무제표와 최신 가격을 함께 가져오며, GitHub Actions 완료 후 새로고침하면 반영됩니다.`
+      );
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : "수동 수집 요청 중 오류 발생");
+    } finally {
+      setManualCollectingId(null);
     }
   };
 
@@ -310,6 +374,7 @@ export default function WatchlistPage() {
               stock.pbr !== null ||
               stock.roe !== null;
             const gicsSector = normalizeGicsSector(stock.gics_sector);
+            const hasMissingMetrics = hasMissingMetricData(stock);
 
             return (
               <div
@@ -423,6 +488,22 @@ export default function WatchlistPage() {
                   >
                     분석 보기
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleManualCollectStock(stock)}
+                    disabled={manualCollectingId !== null}
+                    className={`rounded px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      hasMissingMetrics
+                        ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
+                        : "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
+                    }`}
+                  >
+                    {manualCollectingId === stock.id
+                      ? "요청 중..."
+                      : hasMissingMetrics
+                        ? "누락 수동수집"
+                        : "수동수집"}
+                  </button>
                   <button
                     onClick={() => handleRemoveStock(stock.id, stock.name)}
                     className="rounded bg-red-100 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-200 dark:bg-red-900 dark:text-red-400 dark:hover:bg-red-800"

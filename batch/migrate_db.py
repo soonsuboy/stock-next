@@ -243,6 +243,21 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   ensure_column("app_users", "disabled_at", "TEXT")
   ensure_column("app_users", "last_login_at", "TEXT")
   create_companies()
+  execute(
+    """CREATE TABLE IF NOT EXISTS index_memberships (
+         index_code TEXT NOT NULL,
+         code       TEXT NOT NULL,
+         country    TEXT NOT NULL CHECK(country IN ('KR', 'US')),
+         name       TEXT,
+         gics_sector TEXT,
+         source     TEXT,
+         updated_at TEXT,
+         PRIMARY KEY(index_code, code, country)
+       )"""
+  )
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_index_memberships_market ON index_memberships(index_code, country)"
+  )
   backfill_company_sectors()
   create_metrics_history()
   create_batch_settings()

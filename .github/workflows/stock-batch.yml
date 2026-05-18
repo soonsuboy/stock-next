@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "companies, kr, us, watchlist_prices, telegram_dialogs, telegram_collect, telegram_summarize, or all"
+        description: "companies, index_universe, kr, us, watchlist_prices, telegram_dialogs, telegram_collect, telegram_summarize, or all"
         required: true
         default: "all"
         type: choice
         options:
           - companies
+          - index_universe
           - kr
           - us
           - watchlist_prices
@@ -143,6 +144,19 @@ jobs:
 
           if [ "$mode" = "companies" ] || [ "$mode" = "all" ]; then
             python batch/update_companies.py --market ALL "${company_extra[@]}"
+          fi
+          if [ "$mode" = "index_universe" ]; then
+            index_extra=(--collect-metrics --selection "$selection" --us-shard-index "$shard_index" --us-shard-count "$shard_count")
+            if [ -n "$limit" ]; then
+              index_extra+=(--limit "$limit")
+            fi
+            if [ -n "$request_id" ]; then
+              index_extra+=(--run-id "$request_id")
+            fi
+            if [ "$dry_run" = "true" ]; then
+              index_extra+=(--dry-run)
+            fi
+            python batch/update_index_universe.py --index ALL "${index_extra[@]}"
           fi
           if [ "$mode" = "kr" ] || [ "$mode" = "all" ]; then
             python batch/update_metrics.py --market KR "${metric_extra[@]}"

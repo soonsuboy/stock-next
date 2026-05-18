@@ -134,6 +134,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [selection, setSelection] = useState<Selection>("missing");
   const [manualCodes, setManualCodes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [indexSubmitting, setIndexSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<BatchSettings | null>(
@@ -577,6 +578,42 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setError(err instanceof Error ? err.message : "배치 실행 중 오류 발생");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const dispatchIndexUniverseBatch = async () => {
+    if (indexSubmitting) return;
+    if (
+      !window.confirm(
+        "S&P500과 KOSPI200 구성 종목 약 700개의 미적재 재무/가격 데이터를 GitHub Actions로 수집 요청하시겠습니까? 완료까지 오래 걸릴 수 있습니다."
+      )
+    ) {
+      return;
+    }
+
+    setIndexSubmitting(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/trigger-index-universe", {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "지수 구성종목 사전수집 요청 실패");
+      }
+
+      setMessage(
+        "S&P500/KOSPI200 사전수집 배치를 요청했습니다. GitHub Actions에서 구성 종목을 갱신하고 미적재 재무/가격 데이터를 수집합니다."
+      );
+      await refreshStatus("runs");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "지수 구성종목 사전수집 요청 중 오류 발생"
+      );
+    } finally {
+      setIndexSubmitting(false);
     }
   };
 
@@ -1618,6 +1655,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={indexSubmitting || !status.workflowDispatchConfigured}
+              onClick={dispatchIndexUniverseBatch}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {indexSubmitting ? "요청 중..." : "S&P500+KOSPI200 사전수집"}
+            </button>
             <button
               type="button"
               disabled={submitting || !status.workflowDispatchConfigured}

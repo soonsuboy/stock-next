@@ -1,5 +1,6 @@
 export interface StockBatchDispatchInputs {
   mode:
+    | "index_universe"
     | "kr"
     | "us"
     | "watchlist_prices"

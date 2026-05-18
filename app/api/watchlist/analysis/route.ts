@@ -1,17 +1,23 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
+import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
+import { buildCompanyProfile } from "@/lib/company-profile";
 
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
   try {
+    await ensureCompanySectorColumns();
     const result = await db.execute({
       sql: `SELECT
               c.code,
               c.name,
               c.country,
+              c.market,
+              c.gics_sector,
+              c.industry_name,
               m.market_cap,
               m.equity,
               m.net_income,
@@ -38,6 +44,19 @@ export async function GET() {
       code: row.code,
       name: row.name,
       country: row.country,
+      market: row.market,
+      gics_sector: row.gics_sector,
+      industry_name: row.industry_name,
+      profile: buildCompanyProfile({
+        code: String(row.code),
+        country: String(row.country),
+        name: String(row.name),
+        market: typeof row.market === "string" ? row.market : null,
+        gicsSector:
+          typeof row.gics_sector === "string" ? row.gics_sector : null,
+        industryName:
+          typeof row.industry_name === "string" ? row.industry_name : null,
+      }),
       market_cap: row.market_cap,
       equity: row.equity,
       net_income: row.net_income,

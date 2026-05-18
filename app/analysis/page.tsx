@@ -5,6 +5,14 @@ import { useEffect, useState } from "react";
 interface AnalysisData {
   code: string;
   name: string;
+  market?: string | null;
+  gics_sector?: string | null;
+  industry_name?: string | null;
+  profile?: {
+    overview: string;
+    productsServices: string[];
+    profileSource: "curated" | "sector_fallback";
+  };
   roe?: number;
   pbr?: number;
   per?: number;
@@ -24,6 +32,72 @@ const formatCurrency = (value: number | null | undefined, country: string) => {
     maximumFractionDigits: country === "KR" ? 0 : 2,
   }).format(value);
 };
+
+function CompanyProfilePanel({ stocks }: { stocks: AnalysisData[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+      <h3 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">
+        기업 개요와 주요 제품/서비스
+      </h3>
+      <div className="grid grid-cols-1 gap-4">
+        {stocks.map((stock) => {
+          const products = stock.profile?.productsServices || [];
+
+          return (
+            <article
+              key={`${stock.country}:${stock.code}`}
+              className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+            >
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                    {stock.name}
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {stock.code} · {stock.market || stock.country}
+                    {stock.gics_sector ? ` · ${stock.gics_sector}` : ""}
+                  </p>
+                </div>
+                <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {stock.profile?.profileSource === "curated"
+                    ? "기업별 프로필"
+                    : "섹터 기반 요약"}
+                </span>
+              </div>
+
+              <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                {stock.profile?.overview ||
+                  `${stock.name}의 기업 개요 정보가 아직 준비되지 않았습니다.`}
+              </p>
+
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  주요 제품/서비스
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {products.length > 0 ? (
+                    products.map((product) => (
+                      <span
+                        key={product}
+                        className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200"
+                      >
+                        {product}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-500">
+                      등록된 제품/서비스 정보가 없습니다.
+                    </span>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function TriangleDiagram({ stock }: { stock: AnalysisData }) {
   return (
@@ -287,6 +361,8 @@ export default function AnalysisPage() {
                   ))}
                 </div>
               </div>
+
+              <CompanyProfilePanel stocks={validStocks} />
 
               {/* Metrics Summary */}
               <div className="p-6 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800">

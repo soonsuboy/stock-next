@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminBatchStatus } from "@/lib/admin-data";
 import SectorManagementPanel from "@/app/admin/SectorManagementPanel";
+import UserManagementPanel from "@/app/admin/UserManagementPanel";
 
 interface AdminDashboardProps {
   initialStatus: AdminBatchStatus | null;
@@ -17,7 +18,8 @@ type AdminTab =
   | "telegram"
   | "manual"
   | "runs"
-  | "stockInfo";
+  | "stockInfo"
+  | "users";
 type StatusSection = "summary" | "coverage" | "runs" | "all";
 
 interface TelegramChat {
@@ -92,6 +94,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "coverage", label: "배치적재현황" },
   { id: "telegram", label: "텔레그램종목 토론설정" },
   { id: "stockInfo", label: "주식정보 관리" },
+  { id: "users", label: "사용자관리" },
   { id: "manual", label: "수동배치" },
   { id: "runs", label: "최근 배치 설정" },
 ];
@@ -419,7 +422,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     setSettings((current) => (current ? { ...current, [key]: value } : current));
   };
 
-  const saveSettings = async () => {
+  const saveSettings = async (
+    successMessage = "배치 설정을 저장했습니다. 다음 자동 배치부터 적용됩니다."
+  ) => {
     if (!settings) return;
     setSettingsSaving(true);
     setSettingsMessage("");
@@ -441,7 +446,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setStatus((current) =>
         current ? { ...current, settings: data.settings } : current
       );
-      setSettingsMessage("배치 설정을 저장했습니다. 다음 자동 배치부터 적용됩니다.");
+      setSettingsMessage(successMessage);
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "배치 설정 저장 중 오류 발생");
     } finally {
@@ -1110,7 +1115,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             <button
               type="button"
               disabled={settingsSaving}
-              onClick={saveSettings}
+              onClick={() => saveSettings()}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {settingsSaving ? "저장 중..." : "배치 설정 저장"}
@@ -1225,6 +1230,35 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               AI 날짜별 요약
             </label>
           </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={settingsSaving}
+              onClick={() =>
+                saveSettings(
+                  "텔레그램 설정을 저장했습니다. 다음 자동 실행부터 적용됩니다."
+                )
+              }
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {settingsSaving ? "저장 중..." : "텔레그램 설정 저장"}
+            </button>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              수집 여부, 조회 범위, 이미지 저장, AI 요약 설정을 바꾼 뒤 저장하세요.
+            </p>
+          </div>
+
+          {settingsMessage && (
+            <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">
+              {settingsMessage}
+            </div>
+          )}
+          {settingsError && (
+            <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {settingsError}
+            </div>
+          )}
 
           <div className="mt-5 flex flex-wrap gap-2">
             <button
@@ -1516,6 +1550,8 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       )}
 
       {activeTab === "stockInfo" && <SectorManagementPanel />}
+
+      {activeTab === "users" && <UserManagementPanel />}
 
       {activeTab === "manual" && (
       <section className="mb-8">

@@ -231,11 +231,17 @@ def migrate(clear_legacy_watchlist: bool) -> None:
          name                TEXT,
          email               TEXT,
          image               TEXT,
+         active              INTEGER NOT NULL DEFAULT 1,
+         disabled_at         TEXT,
+         last_login_at       TEXT,
          created_at          TEXT,
          updated_at          TEXT,
          UNIQUE(provider, provider_account_id)
        )"""
   )
+  ensure_column("app_users", "active", "INTEGER NOT NULL DEFAULT 1")
+  ensure_column("app_users", "disabled_at", "TEXT")
+  ensure_column("app_users", "last_login_at", "TEXT")
   create_companies()
   backfill_company_sectors()
   create_metrics_history()

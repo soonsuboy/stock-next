@@ -6,6 +6,7 @@ declare module "next-auth" {
       id: string;
       provider?: string;
       providerAccountId?: string;
+      active?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -15,5 +16,6 @@ declare module "next-auth/jwt" {
     userId?: string;
     provider?: string;
     providerAccountId?: string;
+    userActive?: boolean;
   }
 }

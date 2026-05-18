@@ -1,4 +1,5 @@
-import { auth, signIn } from "@/auth";
+import { signIn } from "@/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { getOAuthSetupStatus } from "@/lib/oauth";
 import { redirect } from "next/navigation";
 
@@ -29,11 +30,11 @@ export default async function LoginPage({
 }: {
   searchParams?: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
-  const session = await auth();
+  const currentUser = await getCurrentUser();
   const setupStatus = getOAuthSetupStatus();
   const params = await searchParams;
 
-  if (session?.user?.id) {
+  if (currentUser) {
     redirect("/watchlist");
   }
 

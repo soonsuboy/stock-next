@@ -9,6 +9,10 @@ export async function getCurrentUser() {
     return null;
   }
 
+  if (session.user.active === false) {
+    return null;
+  }
+
   return {
     id: userId,
     name: session.user.name ?? null,

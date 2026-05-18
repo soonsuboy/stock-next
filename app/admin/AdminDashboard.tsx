@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminBatchStatus } from "@/lib/admin-data";
+import SectorManagementPanel from "@/app/admin/SectorManagementPanel";
 
 interface AdminDashboardProps {
   initialStatus: AdminBatchStatus | null;
@@ -10,7 +11,14 @@ interface AdminDashboardProps {
 type Market = "KR" | "US";
 type Selection = "missing" | "existing" | "incomplete" | "codes";
 type BatchSettings = AdminBatchStatus["settings"];
-type AdminTab = "settings" | "coverage" | "telegram" | "manual" | "runs";
+type AdminTab =
+  | "settings"
+  | "coverage"
+  | "telegram"
+  | "manual"
+  | "runs"
+  | "stockInfo";
+type StatusSection = "summary" | "coverage" | "runs" | "all";
 
 interface TelegramChat {
   chatId: string;
@@ -83,6 +91,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "settings", label: "배치설정" },
   { id: "coverage", label: "배치적재현황" },
   { id: "telegram", label: "텔레그램종목 토론설정" },
+  { id: "stockInfo", label: "주식정보 관리" },
   { id: "manual", label: "수동배치" },
   { id: "runs", label: "최근 배치 설정" },
 ];
@@ -154,6 +163,11 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [telegramRanking, setTelegramRanking] =
     useState<TelegramRanking | null>(null);
   const [telegramRankingLoading, setTelegramRankingLoading] = useState(false);
+  const loadedStatusSectionsRef = useRef(
+    new Set<StatusSection>(initialStatus ? ["summary", "coverage", "runs"] : [])
+  );
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [runsLoading, setRunsLoading] = useState(false);
 
   const maxLimit = status?.maxManualLimit ?? 500;
   const selectedCoverage = useMemo(
@@ -161,34 +175,79 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     [market, status?.coverage]
   );
 
-  const refreshStatus = async () => {
-    setStatusLoading(true);
+  const refreshStatus = async (section: StatusSection = "summary") => {
+    if (section === "summary" || !status) setStatusLoading(true);
+    if (section === "coverage") setCoverageLoading(true);
+    if (section === "runs") setRunsLoading(true);
     try {
-      const response = await fetch("/api/admin/status");
+      const response = await fetch(`/api/admin/status?section=${section}`);
       if (!response.ok) {
         throw new Error("관리자 상태를 다시 불러오지 못했습니다.");
       }
       const nextStatus = await response.json();
-      setStatus(nextStatus);
+      setStatus((current) => {
+        if (!current || section === "all") return nextStatus;
+        return {
+          ...current,
+          ...nextStatus,
+          coverage:
+            section === "coverage" ? nextStatus.coverage : current.coverage,
+          recentRuns:
+            section === "runs" ? nextStatus.recentRuns : current.recentRuns,
+        };
+      });
       setSettings(nextStatus.settings);
       setDiscussionCodeConfigured(
         Boolean(nextStatus.discussionAccessCodeConfigured)
       );
+      loadedStatusSectionsRef.current.add(section);
+      if (section === "all") {
+        loadedStatusSectionsRef.current.add("summary");
+        loadedStatusSectionsRef.current.add("coverage");
+        loadedStatusSectionsRef.current.add("runs");
+      }
     } finally {
-      setStatusLoading(false);
+      if (section === "summary" || !status) setStatusLoading(false);
+      if (section === "coverage") setCoverageLoading(false);
+      if (section === "runs") setRunsLoading(false);
     }
   };
 
   useEffect(() => {
     if (!initialStatus) {
       queueMicrotask(() => {
-        void refreshStatus().catch((err) => {
+        void refreshStatus("summary").catch((err) => {
           setError(err instanceof Error ? err.message : "관리자 상태 조회 실패");
           setStatusLoading(false);
         });
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialStatus]);
+
+  useEffect(() => {
+    if (
+      (activeTab === "coverage" || activeTab === "manual") &&
+      !loadedStatusSectionsRef.current.has("coverage")
+    ) {
+      queueMicrotask(() => {
+        void refreshStatus("coverage").catch((err) => {
+          setError(err instanceof Error ? err.message : "적재 현황 조회 실패");
+          setCoverageLoading(false);
+        });
+      });
+    }
+
+    if (activeTab === "runs" && !loadedStatusSectionsRef.current.has("runs")) {
+      queueMicrotask(() => {
+        void refreshStatus("runs").catch((err) => {
+          setError(err instanceof Error ? err.message : "최근 실행 조회 실패");
+          setRunsLoading(false);
+        });
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const refreshTelegramChats = async () => {
     setTelegramLoading(true);
@@ -319,7 +378,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             ? `${date} 요약 재시도를 요청했습니다. GitHub Actions 완료 후 날짜 목록을 새로고침하세요.`
           : "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
       );
-      await refreshStatus();
+      await refreshStatus("runs");
       await refreshTelegramSummaryDates();
     } catch (err) {
       setTelegramError(
@@ -508,7 +567,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                   : "재집계"
             } 배치를 요청했습니다. 최근 배치 실행에 요청 기록이 먼저 남고, GitHub Actions가 시작하면 실행 기록으로 갱신됩니다.`
       );
-      await refreshStatus();
+      await refreshStatus("runs");
     } catch (err) {
       setError(err instanceof Error ? err.message : "배치 실행 중 오류 발생");
     } finally {
@@ -707,8 +766,18 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
           적재 현황
         </h2>
+        {coverageLoading ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+            적재 현황을 불러오는 중...
+          </div>
+        ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {status.coverage.map((item) => (
+          {status.coverage.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500 dark:border-slate-700 md:col-span-2">
+              적재 현황 데이터가 없습니다.
+            </div>
+          ) : (
+          status.coverage.map((item) => (
             <div
               key={item.country}
               className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
@@ -767,8 +836,10 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 최신 스냅샷: {item.latestSnapshot || "-"}
               </p>
             </div>
-          ))}
+          ))
+          )}
         </div>
+        )}
       </section>
       )}
 
@@ -1444,6 +1515,8 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       </section>
       )}
 
+      {activeTab === "stockInfo" && <SectorManagementPanel />}
+
       {activeTab === "manual" && (
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-bold text-slate-900 dark:text-white">
@@ -1489,15 +1562,21 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               <p className="font-semibold text-slate-700 dark:text-slate-200">
                 현재 선택
               </p>
-              <p className="mt-2">
-                미적재 {formatNumber(selectedCoverage?.missingMetricsCount || 0)}
-                건, 재무 적재 {formatNumber(selectedCoverage?.metricsCompanyCount || 0)}
-                건
-              </p>
-              <p className="mt-1">
-                재무 공백 {formatNumber(selectedCoverage?.incompleteMetricsCount || 0)}
-                건
-              </p>
+              {coverageLoading ? (
+                <p className="mt-2">적재 현황을 불러오는 중...</p>
+              ) : (
+                <>
+                  <p className="mt-2">
+                    미적재 {formatNumber(selectedCoverage?.missingMetricsCount || 0)}
+                    건, 재무 적재{" "}
+                    {formatNumber(selectedCoverage?.metricsCompanyCount || 0)}건
+                  </p>
+                  <p className="mt-1">
+                    재무 공백{" "}
+                    {formatNumber(selectedCoverage?.incompleteMetricsCount || 0)}건
+                  </p>
+                </>
+              )}
               <p className="mt-1">최대 {formatNumber(maxLimit)}건까지 요청 가능</p>
             </div>
           </div>
@@ -1547,7 +1626,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               onClick={() => {
                 setMessage("");
                 setError("");
-                void refreshStatus().catch((err) =>
+                void refreshStatus("coverage").catch((err) =>
                   setError(err instanceof Error ? err.message : "새로고침 실패")
                 );
               }}
@@ -1618,7 +1697,16 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-950">
-              {status.recentRuns.length === 0 ? (
+              {runsLoading ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                  >
+                    최근 배치 실행 내역을 불러오는 중...
+                  </td>
+                </tr>
+              ) : status.recentRuns.length === 0 ? (
                 <tr>
                   <td
                     colSpan={9}

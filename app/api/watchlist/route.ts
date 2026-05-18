@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
 import { inferGicsSector, normalizeGicsSector } from "@/lib/gics-sector";
+import { getSectorGuides, normalizeSectorName } from "@/lib/sector-guides";
 
 function normalizeCode(code: string, country: string) {
   const trimmed = code.trim();
@@ -15,6 +16,7 @@ export async function GET() {
 
   try {
     await ensureCompanySectorColumns();
+    const sectorGuides = await getSectorGuides();
     const result = await db.execute({
       sql: `SELECT
               uw.id,
@@ -56,6 +58,7 @@ export async function GET() {
 
     const stocks = result.rows.map((row) => {
       const gicsSector =
+        normalizeSectorName(row.gics_sector) ||
         normalizeGicsSector(row.gics_sector) ||
         inferGicsSector({
           code: typeof row.code === "string" ? row.code : String(row.code),
@@ -92,7 +95,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ stocks });
+    return NextResponse.json({ stocks, sectors: sectorGuides });
   } catch (error) {
     console.error("Watchlist fetch error:", error);
     return NextResponse.json(

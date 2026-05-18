@@ -46,6 +46,8 @@ export interface AdminBatchStatus {
   discussionAccessCodeConfigured: boolean;
 }
 
+export type AdminStatusSection = "summary" | "coverage" | "runs" | "all";
+
 function toNumber(value: unknown) {
   return typeof value === "number" ? value : Number(value || 0);
 }
@@ -60,15 +62,11 @@ export function getManualBatchLimit() {
   return Math.min(Math.floor(value), 1000);
 }
 
-export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
+async function getCoverage(): Promise<BatchCoverage[]> {
   const [
     companiesResult,
     metricsResult,
     incompleteResult,
-    runsResult,
-    settings,
-    schedulerMeta,
-    discussionAccessCodeConfigured,
   ] = await Promise.all([
     db.execute({
       sql: `SELECT country, COUNT(*) AS company_count
@@ -99,30 +97,8 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
             WHERE m.equity IS NULL OR m.net_income IS NULL
             GROUP BY m.country`,
     }),
-    db.execute({
-      sql: `SELECT
-              id,
-              job_name,
-              market,
-              shard_index,
-              shard_count,
-              status,
-              started_at,
-              completed_at,
-              processed,
-              succeeded,
-              failed,
-              error_sample
-            FROM batch_runs
-            ORDER BY COALESCE(started_at, completed_at) DESC
-            LIMIT 100`,
-    }),
-    getBatchSettings(),
-    getBatchSchedulerMeta(),
-    isDiscussionAccessCodeConfigured(),
   ]);
 
-  const workflow = getWorkflowConfig();
   const metricsByCountry = new Map(
     metricsResult.rows.map((row) => [
       String(row.country),
@@ -140,39 +116,84 @@ export async function getAdminBatchStatus(): Promise<AdminBatchStatus> {
     ])
   );
 
+  return companiesResult.rows.map((row) => {
+    const country = String(row.country);
+    const companyCount = toNumber(row.company_count);
+    const metrics = metricsByCountry.get(country) || {
+      metricsCompanyCount: 0,
+      metricsRowCount: 0,
+      latestSnapshot: null,
+    };
+    return {
+      country,
+      companyCount,
+      metricsCompanyCount: metrics.metricsCompanyCount,
+      missingMetricsCount: Math.max(0, companyCount - metrics.metricsCompanyCount),
+      incompleteMetricsCount: incompleteByCountry.get(country) || 0,
+      latestSnapshot: metrics.latestSnapshot,
+      metricsRowCount: metrics.metricsRowCount,
+    };
+  });
+}
+
+async function getRecentRuns(): Promise<BatchRun[]> {
+  const runsResult = await db.execute({
+    sql: `SELECT
+            id,
+            job_name,
+            market,
+            shard_index,
+            shard_count,
+            status,
+            started_at,
+            completed_at,
+            processed,
+            succeeded,
+            failed,
+            error_sample
+          FROM batch_runs
+          ORDER BY COALESCE(started_at, completed_at) DESC
+          LIMIT 100`,
+  });
+
+  return runsResult.rows.map((row) => ({
+    id: String(row.id),
+    jobName: String(row.job_name),
+    market: toStringOrNull(row.market),
+    shardIndex: row.shard_index === null ? null : toNumber(row.shard_index),
+    shardCount: row.shard_count === null ? null : toNumber(row.shard_count),
+    status: String(row.status),
+    startedAt: toStringOrNull(row.started_at),
+    completedAt: toStringOrNull(row.completed_at),
+    processed: toNumber(row.processed),
+    succeeded: toNumber(row.succeeded),
+    failed: toNumber(row.failed),
+    errorSample: toStringOrNull(row.error_sample),
+  }));
+}
+
+export async function getAdminBatchStatus(
+  section: AdminStatusSection = "summary"
+): Promise<AdminBatchStatus> {
+  const [
+    runsResult,
+    settings,
+    schedulerMeta,
+    discussionAccessCodeConfigured,
+  ] = await Promise.all([
+    section === "runs" || section === "all" ? getRecentRuns() : Promise.resolve([]),
+    getBatchSettings(),
+    getBatchSchedulerMeta(),
+    isDiscussionAccessCodeConfigured(),
+  ]);
+
+  const workflow = getWorkflowConfig();
+  const coverage =
+    section === "coverage" || section === "all" ? await getCoverage() : [];
+
   return {
-    coverage: companiesResult.rows.map((row) => {
-      const country = String(row.country);
-      const companyCount = toNumber(row.company_count);
-      const metrics = metricsByCountry.get(country) || {
-        metricsCompanyCount: 0,
-        metricsRowCount: 0,
-        latestSnapshot: null,
-      };
-      return {
-        country,
-        companyCount,
-        metricsCompanyCount: metrics.metricsCompanyCount,
-        missingMetricsCount: Math.max(0, companyCount - metrics.metricsCompanyCount),
-        incompleteMetricsCount: incompleteByCountry.get(country) || 0,
-        latestSnapshot: metrics.latestSnapshot,
-        metricsRowCount: metrics.metricsRowCount,
-      };
-    }),
-    recentRuns: runsResult.rows.map((row) => ({
-      id: String(row.id),
-      jobName: String(row.job_name),
-      market: toStringOrNull(row.market),
-      shardIndex: row.shard_index === null ? null : toNumber(row.shard_index),
-      shardCount: row.shard_count === null ? null : toNumber(row.shard_count),
-      status: String(row.status),
-      startedAt: toStringOrNull(row.started_at),
-      completedAt: toStringOrNull(row.completed_at),
-      processed: toNumber(row.processed),
-      succeeded: toNumber(row.succeeded),
-      failed: toNumber(row.failed),
-      errorSample: toStringOrNull(row.error_sample),
-    })),
+    coverage,
+    recentRuns: runsResult,
     settings,
     schedulerMeta,
     workflowDispatchConfigured: Boolean(workflow.token),

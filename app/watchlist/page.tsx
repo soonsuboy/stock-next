@@ -2,12 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  GICS_SECTORS,
-  GICS_SECTOR_GUIDES,
-  type GicsSector,
-  normalizeGicsSector,
-} from "@/lib/gics-sector";
 
 interface WatchlistStock {
   id: number;
@@ -32,6 +26,21 @@ interface WatchlistStock {
   debt_ratio?: number | null;
   collected_at?: string | null;
 }
+
+interface SectorGuide {
+  name: string;
+  guidePer: string;
+  guidePbr: string;
+  guideRoe: string;
+  summary: string;
+  active: boolean;
+}
+
+const normalizeSectorName = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
 
 const formatCurrency = (
   value: number | null | undefined,
@@ -87,34 +96,32 @@ const isCollectedWithin24Hours = (value: string | null | undefined) => {
   return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
 };
 
-function SectorTooltip({ sector }: { sector: GicsSector }) {
-  const guide = GICS_SECTOR_GUIDES[sector];
-
+function SectorTooltip({ guide }: { guide: SectorGuide }) {
   return (
     <span className="group relative inline-flex">
       <span
         tabIndex={0}
-        aria-label={`${sector} 지표 가이드`}
+        aria-label={`${guide.name} 지표 가이드`}
         className="inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold text-slate-600 transition hover:border-blue-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
       >
         ?
       </span>
       <span className="pointer-events-none absolute left-1/2 top-7 z-20 w-72 -translate-x-1/2 translate-y-1 rounded-lg border border-slate-200 bg-white p-4 text-left text-xs text-slate-700 opacity-0 shadow-xl transition duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
         <span className="block text-sm font-bold text-slate-900 dark:text-white">
-          {sector} 지표 가이드
+          {guide.name} 지표 가이드
         </span>
         <span className="mt-3 grid grid-cols-3 gap-2">
           <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
             <span className="block text-slate-500 dark:text-slate-400">PER</span>
-            <span className="font-semibold">{guide.per}</span>
+            <span className="font-semibold">{guide.guidePer}</span>
           </span>
           <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
             <span className="block text-slate-500 dark:text-slate-400">PBR</span>
-            <span className="font-semibold">{guide.pbr}</span>
+            <span className="font-semibold">{guide.guidePbr}</span>
           </span>
           <span className="rounded bg-slate-50 p-2 dark:bg-slate-900">
             <span className="block text-slate-500 dark:text-slate-400">ROE</span>
-            <span className="font-semibold">{guide.roe}</span>
+            <span className="font-semibold">{guide.guideRoe}</span>
           </span>
         </span>
         <span className="mt-3 block leading-relaxed">{guide.summary}</span>
@@ -125,6 +132,7 @@ function SectorTooltip({ sector }: { sector: GicsSector }) {
 
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([]);
+  const [sectorGuides, setSectorGuides] = useState<SectorGuide[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [batchMessage, setBatchMessage] = useState("");
@@ -143,6 +151,7 @@ export default function WatchlistPage() {
 
       const data = await response.json();
       setStocks(data.stocks || []);
+      setSectorGuides(data.sectors || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "조회 중 오류 발생");
     } finally {
@@ -177,9 +186,14 @@ export default function WatchlistPage() {
     stock: WatchlistStock,
     nextSectorValue: string
   ) => {
-    const nextSector = normalizeGicsSector(nextSectorValue);
-    const currentSector = normalizeGicsSector(stock.gics_sector);
-    if (!nextSector || nextSector === currentSector || sectorSavingId !== null) {
+    const nextSector = normalizeSectorName(nextSectorValue);
+    const currentSector = normalizeSectorName(stock.gics_sector);
+    if (
+      !nextSector ||
+      !sectorGuides.some((sector) => sector.name === nextSector) ||
+      nextSector === currentSector ||
+      sectorSavingId !== null
+    ) {
       return;
     }
 
@@ -420,7 +434,10 @@ export default function WatchlistPage() {
               stock.per !== null ||
               stock.pbr !== null ||
               stock.roe !== null;
-            const gicsSector = normalizeGicsSector(stock.gics_sector);
+            const gicsSector = normalizeSectorName(stock.gics_sector);
+            const sectorGuide = sectorGuides.find(
+              (sector) => sector.name === gicsSector
+            );
             const hasMissingMetrics = hasMissingMetricData(stock);
 
             return (
@@ -453,13 +470,13 @@ export default function WatchlistPage() {
                         className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-blue-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900"
                       >
                         <option value="">미분류</option>
-                        {GICS_SECTORS.map((sector) => (
-                          <option key={sector} value={sector}>
-                            {sector}
+                        {sectorGuides.map((sector) => (
+                          <option key={sector.name} value={sector.name}>
+                            {sector.name}
                           </option>
                         ))}
                       </select>
-                      {gicsSector && <SectorTooltip sector={gicsSector} />}
+                      {sectorGuide && <SectorTooltip guide={sectorGuide} />}
                       {sectorSavingId === stock.id && (
                         <span className="text-blue-600 dark:text-blue-300">
                           저장 중...

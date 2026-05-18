@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
-import { normalizeGicsSector } from "@/lib/gics-sector";
+import { getActiveSectorNames, normalizeSectorName } from "@/lib/sector-guides";
 
 function parseWatchlistId(value: string) {
   const watchlistId = Number(value);
@@ -33,13 +33,21 @@ export async function PATCH(
       gics_sector?: unknown;
       sector?: unknown;
     };
-    const nextSector = normalizeGicsSector(
+    const nextSector = normalizeSectorName(
       body.gicsSector ?? body.gics_sector ?? body.sector
     );
 
     if (!nextSector) {
       return NextResponse.json(
         { error: "GICS 11대 섹터 중 하나를 선택하세요." },
+        { status: 400 }
+      );
+    }
+
+    const activeSectorNames = await getActiveSectorNames();
+    if (!activeSectorNames.has(nextSector)) {
+      return NextResponse.json(
+        { error: "관리자에 등록된 사용 가능 섹터 중 하나를 선택하세요." },
         { status: 400 }
       );
     }

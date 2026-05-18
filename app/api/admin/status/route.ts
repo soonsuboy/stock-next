@@ -1,13 +1,22 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/admin";
-import { getAdminBatchStatus } from "@/lib/admin-data";
+import {
+  getAdminBatchStatus,
+  type AdminStatusSection,
+} from "@/lib/admin-data";
 
-export async function GET() {
+const validSections = new Set(["summary", "coverage", "runs", "all"]);
+
+export async function GET(request: NextRequest) {
   const { response } = await requireAdminApi();
   if (response) return response;
 
   try {
-    const status = await getAdminBatchStatus();
+    const sectionParam = request.nextUrl.searchParams.get("section") || "summary";
+    const section = (
+      validSections.has(sectionParam) ? sectionParam : "summary"
+    ) as AdminStatusSection;
+    const status = await getAdminBatchStatus(section);
     return NextResponse.json(status);
   } catch (error) {
     console.error("Admin batch status error:", error);

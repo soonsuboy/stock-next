@@ -24,3 +24,20 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes route-progress {
+  0% {
+    transform: translateX(-85%) scaleX(0.25);
+  }
+  55% {
+    transform: translateX(-20%) scaleX(0.7);
+  }
+  100% {
+    transform: translateX(100%) scaleX(0.35);
+  }
+}
+
+.route-progress-bar {
+  transform-origin: left center;
+  animation: route-progress 1.15s ease-in-out infinite;
+}

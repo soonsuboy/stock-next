@@ -78,6 +78,68 @@ def load_watchlist_targets(market: str, limit: int | None) -> list[dict[str, Any
   return result["rows"]
 
 
+def load_metric_targets(
+  market: str,
+  limit: int | None,
+  missing_change_only: bool,
+) -> list[dict[str, Any]]:
+  args: list[Any] = []
+  filters: list[str] = []
+  if market != "ALL":
+    filters.append("m.country = ?")
+    args.append(market)
+  if missing_change_only:
+    filters.append("(m.previous_close IS NULL OR m.change_rate IS NULL)")
+
+  where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+  limit_sql = ""
+  if limit:
+    limit_sql = "LIMIT ?"
+    args.append(limit)
+
+  result = execute(
+    f"""WITH latest AS (
+          SELECT code, country, MAX(snapshot_date) AS snapshot_date
+          FROM metrics_history
+          GROUP BY code, country
+        )
+        SELECT
+          m.code,
+          m.country,
+          COALESCE(c.name, m.name) AS name,
+          c.market,
+          COALESCE(m.currency, c.currency) AS currency,
+          m.snapshot_date AS source_snapshot_date,
+          m.close_price,
+          m.previous_close,
+          m.change_rate,
+          m.market_cap,
+          m.shares_outstanding,
+          m.equity,
+          m.net_income,
+          m.operating_income,
+          m.total_liabilities,
+          m.debt_ratio,
+          m.foreign_ratio,
+          m.institution_ratio,
+          m.report_code,
+          m.bsns_year,
+          m.source
+        FROM latest l
+        JOIN metrics_history m
+          ON m.code = l.code
+         AND m.country = l.country
+         AND m.snapshot_date = l.snapshot_date
+        LEFT JOIN companies c
+          ON m.code = c.code AND m.country = c.country
+        {where_sql}
+        ORDER BY m.country, m.code
+        {limit_sql}""",
+    args,
+  )
+  return result["rows"]
+
+
 def implied_shares(row: dict[str, Any]) -> float | None:
   market_cap = to_number(row.get("market_cap"))
   close_price = to_number(row.get("close_price"))
@@ -244,13 +306,33 @@ def flush(metric_rows: list[tuple[Any, ...]], item_rows: list[tuple[Any, ...]]) 
 def main() -> None:
   parser = argparse.ArgumentParser()
   parser.add_argument("--market", choices=["KR", "US", "ALL"], default="ALL")
+  parser.add_argument(
+    "--scope",
+    choices=["watchlist", "metrics"],
+    default="watchlist",
+    help="watchlist refreshes only user watchlists; metrics refreshes latest metrics rows",
+  )
+  parser.add_argument(
+    "--missing-change-only",
+    action="store_true",
+    help="With --scope metrics, process only rows missing previous_close or change_rate",
+  )
   parser.add_argument("--limit", type=int)
   parser.add_argument("--dry-run", action="store_true")
   parser.add_argument("--run-id")
   args = parser.parse_args()
 
-  targets = load_watchlist_targets(args.market, args.limit)
+  targets = (
+    load_metric_targets(args.market, args.limit, args.missing_change_only)
+    if args.scope == "metrics"
+    else load_watchlist_targets(args.market, args.limit)
+  )
   run_id = args.run_id or str(uuid.uuid4())
+  job_name = (
+    "update_metric_prices"
+    if args.scope == "metrics"
+    else "update_watchlist_prices"
+  )
 
   if not args.dry_run:
     execute(
@@ -269,7 +351,7 @@ def main() -> None:
            succeeded = 0,
            failed = 0,
            error_sample = NULL""",
-      [run_id, "update_watchlist_prices", args.market, now_text()],
+      [run_id, job_name, args.market, now_text()],
     )
 
   processed = 0

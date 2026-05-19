@@ -8,6 +8,8 @@ interface Stock {
   market: string;
   country: string;
   price?: number | null;
+  previous_close?: number | null;
+  change_rate?: number | null;
   marcap?: number | null;
 }
 
@@ -22,6 +24,7 @@ interface RankedStock extends Stock {
 }
 
 type SortKey = "market_cap" | "roe" | "per" | "pbr" | "price";
+type RankFilter = "all" | "limit_up" | "limit_down";
 
 const sortOptions: Array<{ key: SortKey; label: string }> = [
   { key: "market_cap", label: "시가총액 높은 순" },
@@ -29,6 +32,12 @@ const sortOptions: Array<{ key: SortKey; label: string }> = [
   { key: "per", label: "PER 낮은 순" },
   { key: "pbr", label: "PBR 낮은 순" },
   { key: "price", label: "가격 높은 순" },
+];
+
+const filterOptions: Array<{ key: RankFilter; label: string }> = [
+  { key: "all", label: "전체" },
+  { key: "limit_up", label: "상한가 +28% 이상" },
+  { key: "limit_down", label: "하한가 -28% 이하" },
 ];
 
 const formatCurrency = (
@@ -50,12 +59,33 @@ const formatMetric = (value: number | null | undefined, suffix = "") => {
   return `${value.toFixed(2)}${suffix}`;
 };
 
+const formatChangeRate = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "-";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+};
+
 function countryLabel(country: string) {
   return country === "KR" ? "한국" : "미국";
 }
 
 function stockKey(stock: Stock) {
   return `${stock.country}:${stock.code}`;
+}
+
+function ChangeRateBadge({ value }: { value: number | null | undefined }) {
+  const tone =
+    value === null || value === undefined || value === 0
+      ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+      : value > 0
+        ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
+        : "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200";
+
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${tone}`}>
+      {formatChangeRate(value)}
+    </span>
+  );
 }
 
 export default function SearchPage() {
@@ -65,17 +95,20 @@ export default function SearchPage() {
   const [error, setError] = useState("");
   const [addedStocks, setAddedStocks] = useState<Set<string>>(new Set());
   const [rankSort, setRankSort] = useState<SortKey>("market_cap");
+  const [rankFilter, setRankFilter] = useState<RankFilter>("all");
   const [ranked, setRanked] = useState<{ KR: RankedStock[]; US: RankedStock[] }>(
     { KR: [], US: [] }
   );
   const [rankLoading, setRankLoading] = useState(true);
   const [rankError, setRankError] = useState("");
 
-  const fetchRanked = async (sort: SortKey) => {
+  const fetchRanked = async (sort: SortKey, filter: RankFilter) => {
     setRankLoading(true);
     setRankError("");
     try {
-      const response = await fetch(`/api/search/ranked?sort=${sort}&limit=30`);
+      const response = await fetch(
+        `/api/search/ranked?sort=${sort}&filter=${filter}&limit=30`
+      );
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "집계 기업 조회 실패");
@@ -90,9 +123,9 @@ export default function SearchPage() {
 
   useEffect(() => {
     queueMicrotask(() => {
-      void fetchRanked(rankSort);
+      void fetchRanked(rankSort, rankFilter);
     });
-  }, [rankSort]);
+  }, [rankSort, rankFilter]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,7 +223,16 @@ export default function SearchPage() {
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">가격</dt>
                 <dd className="font-semibold text-slate-900 dark:text-white">
-                  {formatCurrency(stock.price, country, false)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{formatCurrency(stock.price, country, false)}</span>
+                    <ChangeRateBadge value={stock.change_rate} />
+                  </div>
+                  {stock.previous_close !== null &&
+                    stock.previous_close !== undefined && (
+                      <p className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                        전일 {formatCurrency(stock.previous_close, country, false)}
+                      </p>
+                    )}
                 </dd>
               </div>
               <div>
@@ -265,7 +307,14 @@ export default function SearchPage() {
                     {stock.code} ({stock.market})
                   </span>
                   <span>{countryLabel(stock.country)}</span>
-                  {stock.price && <span>{stock.price.toLocaleString()}</span>}
+                  {stock.price && (
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <span>
+                        {formatCurrency(stock.price, stock.country, false)}
+                      </span>
+                      <ChangeRateBadge value={stock.change_rate} />
+                    </span>
+                  )}
                 </div>
               </div>
               {renderAddButton(stock)}
@@ -303,6 +352,22 @@ export default function SearchPage() {
               </button>
             ))}
           </div>
+        </div>
+        <div className="mb-5 flex flex-wrap gap-2">
+          {filterOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setRankFilter(option.key)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                rankFilter === option.key
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
 
         {rankError && (

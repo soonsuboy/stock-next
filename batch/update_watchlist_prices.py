@@ -10,6 +10,7 @@ from update_metrics import (
   fetch_kr_quote,
   fetch_stooq_quote,
   now_text,
+  price_change_rate,
   safe_div,
   today_text,
   to_number,
@@ -47,6 +48,8 @@ def load_watchlist_targets(market: str, limit: int | None) -> list[dict[str, Any
           c.currency,
           m.snapshot_date AS source_snapshot_date,
           m.close_price,
+          m.previous_close,
+          m.change_rate,
           m.market_cap,
           m.shares_outstanding,
           m.equity,
@@ -103,7 +106,16 @@ def build_source(row: dict[str, Any], market_source: str) -> str:
   return json.dumps(source, ensure_ascii=False)
 
 
-def fetch_latest_price_and_shares(row: dict[str, Any]) -> tuple[float | None, float | None, float | None, str]:
+def fetch_latest_price_and_shares(
+  row: dict[str, Any]
+) -> tuple[
+  float | None,
+  float | None,
+  float | None,
+  float | None,
+  float | None,
+  str,
+]:
   country = str(row["country"])
   code = str(row["code"])
   stored_shares = to_number(row.get("shares_outstanding")) or implied_shares(row)
@@ -111,25 +123,29 @@ def fetch_latest_price_and_shares(row: dict[str, Any]) -> tuple[float | None, fl
   if country == "KR":
     quote = fetch_kr_quote(code)
     price = to_number(quote.get("price"))
+    previous_close = to_number(quote.get("previous_close"))
     quote_shares = to_number(quote.get("shares"))
     shares = quote_shares or stored_shares
     market_cap = to_number(quote.get("market_cap"))
     if market_cap is None and price is not None and shares is not None:
       market_cap = price * shares
-    return price, market_cap, shares, "daum"
+    return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, "daum"
 
   quote = fetch_stooq_quote(code)
   price = to_number(quote.get("price"))
+  previous_close = to_number(quote.get("previous_close"))
   shares = stored_shares
   ratio = ADR_SHARE_RATIO.get(code, 1.0)
   if ratio != 1.0 and shares is not None and shares > 10_000_000_000:
     shares = shares / ratio
   market_cap = price * shares if price is not None and shares is not None else None
-  return price, market_cap, shares, "stooq"
+  return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, "stooq"
 
 
 def build_metric_row(row: dict[str, Any]) -> tuple[Any, ...]:
-  price, market_cap, shares, market_source = fetch_latest_price_and_shares(row)
+  price, previous_close, change_rate, market_cap, shares, market_source = (
+    fetch_latest_price_and_shares(row)
+  )
   if price is None:
     raise RuntimeError("latest price is missing")
   if market_cap is None:
@@ -156,6 +172,8 @@ def build_metric_row(row: dict[str, Any]) -> tuple[Any, ...]:
     row.get("name"),
     row.get("currency") or ("KRW" if row["country"] == "KR" else "USD"),
     price,
+    previous_close,
+    change_rate,
     market_cap,
     shares,
     equity,
@@ -179,15 +197,18 @@ def flush(metric_rows: list[tuple[Any, ...]], item_rows: list[tuple[Any, ...]]) 
   if metric_rows:
     execute_many(
       """INSERT INTO metrics_history
-         (snapshot_date, code, country, name, currency, close_price, market_cap,
-          shares_outstanding, equity, net_income, operating_income,
+         (snapshot_date, code, country, name, currency, close_price,
+          previous_close, change_rate, market_cap, shares_outstanding, equity,
+          net_income, operating_income,
           total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
           per, pbr, roe, report_code, bsns_year, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(snapshot_date, code, country) DO UPDATE SET
            name = excluded.name,
            currency = excluded.currency,
            close_price = excluded.close_price,
+           previous_close = excluded.previous_close,
+           change_rate = excluded.change_rate,
            market_cap = excluded.market_cap,
            shares_outstanding = excluded.shares_outstanding,
            equity = excluded.equity,

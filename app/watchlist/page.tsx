@@ -14,6 +14,8 @@ interface WatchlistStock {
   sector_source?: string | null;
   added_at: string;
   price?: number | null;
+  previous_close?: number | null;
+  change_rate?: number | null;
   market_cap?: number | null;
   shares_outstanding?: number | null;
   equity?: number | null;
@@ -60,6 +62,12 @@ const formatCurrency = (
 const formatMetric = (value: number | null | undefined, suffix = "") => {
   if (value === null || value === undefined) return "-";
   return `${value.toFixed(2)}${suffix}`;
+};
+
+const formatChangeRate = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "-";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 };
 
 const formatShares = (value: number | null | undefined) => {
@@ -126,6 +134,21 @@ function SectorTooltip({ guide }: { guide: SectorGuide }) {
         </span>
         <span className="mt-3 block leading-relaxed">{guide.summary}</span>
       </span>
+    </span>
+  );
+}
+
+function ChangeRateBadge({ value }: { value: number | null | undefined }) {
+  const tone =
+    value === null || value === undefined || value === 0
+      ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+      : value > 0
+        ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
+        : "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200";
+
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${tone}`}>
+      {formatChangeRate(value)}
     </span>
   );
 }
@@ -527,8 +550,24 @@ export default function WatchlistPage() {
                         <span className="text-slate-600 dark:text-slate-400">
                           최근 가격
                         </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {formatCurrency(stock.price, stock.country, false)}
+                        <span className="text-right font-semibold text-slate-900 dark:text-white">
+                          <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                            <span>
+                              {formatCurrency(stock.price, stock.country, false)}
+                            </span>
+                            <ChangeRateBadge value={stock.change_rate} />
+                          </span>
+                          {stock.previous_close !== null &&
+                            stock.previous_close !== undefined && (
+                              <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+                                전일{" "}
+                                {formatCurrency(
+                                  stock.previous_close,
+                                  stock.country,
+                                  false
+                                )}
+                              </span>
+                            )}
                         </span>
                       </div>
                       <div className="flex justify-between gap-3">

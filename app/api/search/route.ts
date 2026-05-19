@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
+import { ensureMetricsPriceColumns } from "@/lib/metrics-price-schema";
 
 interface Stock {
   code: string;
@@ -8,6 +9,8 @@ interface Stock {
   market: string;
   country: string;
   price?: number | null;
+  previous_close?: number | null;
+  change_rate?: number | null;
   marcap?: number | null;
 }
 
@@ -25,6 +28,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await ensureMetricsPriceColumns();
     const startsWith = `${q}%`;
     const contains = `%${q}%`;
 
@@ -54,6 +58,8 @@ export async function GET(request: NextRequest) {
               c.market,
               c.country,
               m.close_price AS price,
+              m.previous_close,
+              m.change_rate,
               m.market_cap AS marcap
             FROM matched_companies c
             LEFT JOIN metrics_history m
@@ -73,6 +79,9 @@ export async function GET(request: NextRequest) {
       market: typeof row.market === "string" ? row.market : "",
       country: String(row.country),
       price: typeof row.price === "number" ? row.price : null,
+      previous_close:
+        typeof row.previous_close === "number" ? row.previous_close : null,
+      change_rate: typeof row.change_rate === "number" ? row.change_rate : null,
       marcap: typeof row.marcap === "number" ? row.marcap : null,
     }));
 

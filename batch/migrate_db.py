@@ -122,6 +122,11 @@ def create_metrics_history() -> None:
   sql = table_sql("metrics_history")
   if "PRIMARY KEY (snapshot_date, code, country)" in sql:
     ensure_column("metrics_history", "shares_outstanding", "REAL")
+    ensure_column("metrics_history", "previous_close", "REAL")
+    ensure_column("metrics_history", "change_rate", "REAL")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_metrics_history_change_rate ON metrics_history(country, change_rate)"
+    )
     return
 
   execute(
@@ -132,6 +137,8 @@ def create_metrics_history() -> None:
          name              TEXT,
          currency          TEXT,
          close_price       REAL,
+         previous_close    REAL,
+         change_rate       REAL,
          market_cap        REAL,
          shares_outstanding REAL,
          equity            REAL,
@@ -156,15 +163,19 @@ def create_metrics_history() -> None:
     columns = column_names("metrics_history")
     country_expr = "country" if "country" in columns else "'KR'"
     shares_expr = "shares_outstanding" if "shares_outstanding" in columns else "NULL"
+    previous_close_expr = "previous_close" if "previous_close" in columns else "NULL"
+    change_rate_expr = "change_rate" if "change_rate" in columns else "NULL"
     execute(
       f"""INSERT OR IGNORE INTO metrics_history_next
-         (snapshot_date, code, country, name, currency, close_price, market_cap,
-          shares_outstanding, equity, net_income, operating_income,
+         (snapshot_date, code, country, name, currency, close_price,
+          previous_close, change_rate, market_cap, shares_outstanding, equity,
+          net_income, operating_income,
           total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
           per, pbr, roe, report_code, bsns_year, source, created_at)
          SELECT
           snapshot_date, code, COALESCE({country_expr}, 'KR'), name, currency,
-          close_price, market_cap, {shares_expr}, equity, net_income,
+          close_price, {previous_close_expr}, {change_rate_expr}, market_cap,
+          {shares_expr}, equity, net_income,
           operating_income, total_liabilities, debt_ratio, foreign_ratio,
           institution_ratio, per, pbr, roe, report_code, bsns_year, source,
           created_at
@@ -173,6 +184,9 @@ def create_metrics_history() -> None:
     execute("DROP TABLE metrics_history")
 
   execute("ALTER TABLE metrics_history_next RENAME TO metrics_history")
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_metrics_history_change_rate ON metrics_history(country, change_rate)"
+  )
 
 
 def create_batch_settings() -> None:

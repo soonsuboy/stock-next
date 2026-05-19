@@ -125,6 +125,12 @@ def safe_div(a: float | None, b: float | None) -> float | None:
   return value if value not in [float("inf"), float("-inf")] else None
 
 
+def price_change_rate(price: float | None, previous_close: float | None) -> float | None:
+  if price is None or previous_close is None or previous_close == 0:
+    return None
+  return ((price - previous_close) / previous_close) * 100
+
+
 def to_number(value: Any) -> float | None:
   if value is None:
     return None
@@ -346,16 +352,30 @@ def fetch_kr_quote(code: str) -> dict[str, Any]:
       continue
 
     price = to_number(item.get("tradePrice"))
+    change_price = to_number(item.get("changePrice"))
+    previous_close = (
+      price - change_price
+      if price is not None and change_price is not None
+      else None
+    )
     shares = to_number(item.get("listedShareCount"))
     return {
       "price": price,
+      "previous_close": previous_close,
+      "change_rate": price_change_rate(price, previous_close),
       "market_cap": price * shares if price is not None and shares is not None else None,
       "shares": shares,
       "market": item.get("market") or "KRX",
       "name": item.get("name"),
     }
 
-  return {"price": None, "market_cap": None, "shares": None}
+  return {
+    "price": None,
+    "previous_close": None,
+    "change_rate": None,
+    "market_cap": None,
+    "shares": None,
+  }
 
 
 def account_text(item: dict[str, Any], key: str) -> str:
@@ -481,7 +501,7 @@ def fetch_dart_financials(company: dict[str, Any]) -> dict[str, Any]:
 def fetch_stooq_quote(symbol: str) -> dict[str, Any]:
   response = requests.get(
     "https://stooq.com/q/l/",
-    params={"s": f"{symbol.lower()}.us", "f": "sd2t2ohlcv", "h": "", "e": "csv"},
+    params={"s": f"{symbol.lower()}.us", "f": "sd2t2ohlcvp", "h": "", "e": "csv"},
     headers={"User-Agent": UA},
     timeout=15,
   )
@@ -489,8 +509,14 @@ def fetch_stooq_quote(symbol: str) -> dict[str, Any]:
   reader = csv.DictReader(StringIO(response.text))
   row = next(reader, None)
   if not row or row.get("Close") == "N/D":
-    return {"price": None}
-  return {"price": to_number(row.get("Close"))}
+    return {"price": None, "previous_close": None, "change_rate": None}
+  price = to_number(row.get("Close"))
+  previous_close = to_number(row.get("Prev"))
+  return {
+    "price": price,
+    "previous_close": previous_close,
+    "change_rate": price_change_rate(price, previous_close),
+  }
 
 
 def fetch_stooq_fx_to_usd(currency: str) -> tuple[float | None, str]:
@@ -921,6 +947,8 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
             "fallback_error": f"fnguide/{error}",
           }
     price = quote.get("price")
+    previous_close = quote.get("previous_close")
+    change_rate = quote.get("change_rate")
     shares = quote.get("shares")
     market_cap = quote.get("market_cap")
   else:
@@ -944,6 +972,8 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
       financials["financial_currency"] = US_FINANCIAL_CURRENCY_OVERRIDES[code]
     financials = convert_us_financials_to_usd(financials)
     price = quote.get("price")
+    previous_close = quote.get("previous_close")
+    change_rate = quote.get("change_rate")
     shares, share_source, share_ratio = resolve_us_shares_for_quote(
       code,
       to_number(financials.get("shares_outstanding")),
@@ -980,6 +1010,8 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
     name,
     currency,
     price,
+    previous_close,
+    change_rate,
     market_cap,
     shares,
     equity,
@@ -1003,15 +1035,17 @@ def flush(metric_rows: list[tuple[Any, ...]], item_rows: list[tuple[Any, ...]]) 
   if metric_rows:
     execute_many(
       """INSERT INTO metrics_history
-         (snapshot_date, code, country, name, currency, close_price, market_cap,
-          shares_outstanding, equity, net_income, operating_income,
+         (snapshot_date, code, country, name, currency, close_price,
+          previous_close, change_rate, market_cap, shares_outstanding, equity, net_income, operating_income,
           total_liabilities, debt_ratio, foreign_ratio, institution_ratio,
           per, pbr, roe, report_code, bsns_year, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(snapshot_date, code, country) DO UPDATE SET
            name = excluded.name,
            currency = excluded.currency,
            close_price = excluded.close_price,
+           previous_close = excluded.previous_close,
+           change_rate = excluded.change_rate,
            market_cap = excluded.market_cap,
            shares_outstanding = excluded.shares_outstanding,
            equity = excluded.equity,

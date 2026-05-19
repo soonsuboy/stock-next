@@ -4,6 +4,7 @@ import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
 import { inferGicsSector, normalizeGicsSector } from "@/lib/gics-sector";
 import { getSectorGuides, normalizeSectorName } from "@/lib/sector-guides";
+import { ensureMetricsPriceColumns } from "@/lib/metrics-price-schema";
 
 function normalizeCode(code: string, country: string) {
   const trimmed = code.trim();
@@ -16,6 +17,7 @@ export async function GET() {
 
   try {
     await ensureCompanySectorColumns();
+    await ensureMetricsPriceColumns();
     const sectorGuides = await getSectorGuides();
     const result = await db.execute({
       sql: `SELECT
@@ -29,6 +31,8 @@ export async function GET() {
               c.sector_source,
               uw.added_at,
               m.close_price AS price,
+              m.previous_close,
+              m.change_rate,
               m.market_cap,
               m.shares_outstanding,
               m.equity,
@@ -81,6 +85,8 @@ export async function GET() {
         sector_source: row.sector_source,
         added_at: row.added_at,
         price: row.price,
+        previous_close: row.previous_close,
+        change_rate: row.change_rate,
         market_cap: row.market_cap,
         shares_outstanding: row.shares_outstanding,
         equity: row.equity,

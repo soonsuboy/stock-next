@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "companies, index_universe, kr, us, watchlist_prices, telegram_dialogs, telegram_collect, telegram_summarize, or all"
+        description: "companies, index_universe, kr, us, watchlist_prices, metric_prices, telegram_dialogs, telegram_collect, telegram_summarize, or all"
         required: true
         default: "all"
         type: choice
@@ -17,6 +17,7 @@ on:
           - kr
           - us
           - watchlist_prices
+          - metric_prices
           - telegram_dialogs
           - telegram_collect
           - telegram_summarize
@@ -166,6 +167,9 @@ jobs:
           fi
           if [ "$mode" = "watchlist_prices" ] || [ "$mode" = "all" ]; then
             python batch/update_watchlist_prices.py --market ALL "${price_extra[@]}"
+          fi
+          if [ "$mode" = "metric_prices" ]; then
+            python batch/update_watchlist_prices.py --scope metrics --market ALL "${price_extra[@]}"
           fi
           if [ "$mode" = "telegram_dialogs" ]; then
             telegram_extra=()

@@ -20,6 +20,10 @@ DEFAULTS = {
   "us_limit": "1000",
   "us_shard_count": "7",
   "scheduled_selection": "all",
+  "metric_price_enabled": "true",
+  "metric_price_time_kst": "07:00",
+  "metric_price_market": "ALL",
+  "metric_price_limit": "0",
   "watchlist_price_enabled": "true",
   "watchlist_price_time_kst": "06:30",
   "last_scheduled_run_date_kst": "",
@@ -33,6 +37,11 @@ DEFAULTS = {
   "last_watchlist_price_run_completed_at": "",
   "last_watchlist_price_run_status": "",
   "last_watchlist_price_check_reason": "",
+  "last_metric_price_run_date_kst": "",
+  "last_metric_price_run_started_at": "",
+  "last_metric_price_run_completed_at": "",
+  "last_metric_price_run_status": "",
+  "last_metric_price_check_reason": "",
 }
 
 
@@ -139,6 +148,33 @@ def should_run_watchlist_price_now(
 
   return True, (
     f"watchlist price due target={target.strftime('%H:%M')} "
+    f"delay={int(delta_minutes)}m"
+  )
+
+
+def should_run_metric_price_now(
+  settings: dict[str, str], now_kst: datetime
+) -> tuple[bool, str]:
+  if not bool_setting(settings, "metric_price_enabled"):
+    return False, "metric price schedule disabled"
+
+  time_text = settings.get("metric_price_time_kst", "07:00")
+  try:
+    hour, minute = [int(part) for part in time_text.split(":", 1)]
+    target = datetime.combine(now_kst.date(), datetime_time(hour, minute), KST)
+  except ValueError:
+    target = datetime.combine(now_kst.date(), datetime_time(7, 0), KST)
+
+  delta_minutes = (now_kst - target).total_seconds() / 60
+  if delta_minutes < 0:
+    return False, f"before metric price target={target.strftime('%H:%M')}"
+
+  today = now_kst.date().isoformat()
+  if settings.get("last_metric_price_run_date_kst") == today:
+    return False, f"metric prices already ran for {today}"
+
+  return True, (
+    f"metric price due target={target.strftime('%H:%M')} "
     f"delay={int(delta_minutes)}m"
   )
 
@@ -267,6 +303,52 @@ def run_watchlist_price_schedule(settings: dict[str, str], now_kst: datetime) ->
     save_setting("last_watchlist_price_run_status", "failed")
 
 
+def run_metric_price_schedule(settings: dict[str, str], now_kst: datetime) -> None:
+  should_run, reason = should_run_metric_price_now(settings, now_kst)
+  print(f"metric price reason={reason}")
+  save_setting("last_metric_price_check_reason", reason)
+  if not should_run:
+    return
+
+  run_id = f"metric-price-{now_kst.strftime('%Y%m%d')}"
+  market = settings.get("metric_price_market", "ALL")
+  if market not in ["ALL", "KR", "US"]:
+    market = "ALL"
+  limit = int_setting(settings, "metric_price_limit", 0, 0, 10000)
+  command = [
+    sys.executable,
+    "batch/update_watchlist_prices.py",
+    "--scope",
+    "metrics",
+    "--market",
+    market,
+    "--run-id",
+    run_id,
+  ]
+  command = append_limit(command, limit)
+
+  save_setting(
+    "last_metric_price_run_started_at",
+    now_kst.isoformat(timespec="seconds"),
+  )
+  save_setting("last_metric_price_run_status", "running")
+  try:
+    run_command(command)
+    save_setting("last_metric_price_run_date_kst", now_kst.date().isoformat())
+    save_setting(
+      "last_metric_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_metric_price_run_status", "success")
+  except Exception as error:
+    print(f"[metric price schedule failed] {error}", flush=True)
+    save_setting(
+      "last_metric_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_metric_price_run_status", "failed")
+
+
 def main() -> None:
   settings = load_settings()
   now_kst = datetime.now(KST)
@@ -275,6 +357,7 @@ def main() -> None:
   save_setting("last_scheduler_check_at", now_kst.isoformat(timespec="seconds"))
   save_setting("last_scheduler_check_reason", reason)
   run_watchlist_price_schedule(settings, now_kst)
+  run_metric_price_schedule(settings, now_kst)
 
   if not should_run:
     return

@@ -17,6 +17,10 @@ DEFAULT_BATCH_SETTINGS = {
   "us_limit": "1000",
   "us_shard_count": "7",
   "scheduled_selection": "all",
+  "metric_price_enabled": "true",
+  "metric_price_time_kst": "07:00",
+  "metric_price_market": "ALL",
+  "metric_price_limit": "0",
   "watchlist_skip_recent_hours": "24",
   "watchlist_price_enabled": "true",
   "watchlist_price_time_kst": "06:30",
@@ -39,6 +43,11 @@ DEFAULT_BATCH_SETTINGS = {
   "last_watchlist_price_run_completed_at": "",
   "last_watchlist_price_run_status": "",
   "last_watchlist_price_check_reason": "",
+  "last_metric_price_run_date_kst": "",
+  "last_metric_price_run_started_at": "",
+  "last_metric_price_run_completed_at": "",
+  "last_metric_price_run_status": "",
+  "last_metric_price_check_reason": "",
 }
 
 

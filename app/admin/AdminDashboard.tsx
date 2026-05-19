@@ -901,10 +901,10 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 }
                 className="h-4 w-4"
               />
-              자동 배치 활성화
+              재무/기업 자동 배치 활성화
             </label>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              실행 기준 시간(KST)
+              재무 실행 기준 시간(KST)
               <input
                 type="time"
                 value={settings.scheduleTimeKst}
@@ -932,7 +932,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </label>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-950 md:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-950 md:grid-cols-5">
             <div>
               <p className="font-semibold text-slate-700 dark:text-slate-200">
                 마지막 스케줄 체크
@@ -951,7 +951,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </div>
             <div>
               <p className="font-semibold text-slate-700 dark:text-slate-200">
-                마지막 자동 실행
+                재무/기업 실행
               </p>
               <p className="mt-1 text-slate-600 dark:text-slate-400">
                 {status.schedulerMeta.lastScheduledRunDateKst || "-"}{" "}
@@ -962,7 +962,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </div>
             <div>
               <p className="font-semibold text-slate-700 dark:text-slate-200">
-                마지막 가격 갱신
+                관심종목 가격 갱신
               </p>
               <p className="mt-1 text-slate-600 dark:text-slate-400">
                 {status.schedulerMeta.lastWatchlistPriceRunDateKst || "-"}{" "}
@@ -971,6 +971,27 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                   : ""}
               </p>
             </div>
+            <div>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                전체 가격 갱신
+              </p>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">
+                {status.schedulerMeta.lastMetricPriceRunDateKst || "-"}{" "}
+                {status.schedulerMeta.lastMetricPriceRunStatus
+                  ? `(${status.schedulerMeta.lastMetricPriceRunStatus})`
+                  : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              재무제표 수집 배치
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              재무제표와 기업 마스터는 상대적으로 무거운 작업이라 요일, shard, 1회
+              처리 건수를 나눠 운영합니다.
+            </p>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1090,7 +1111,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               자동 배치 대상
               <select
@@ -1107,6 +1128,77 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                 <option value="missing">미적재 기업만</option>
                 <option value="existing">기존 적재 기업만</option>
               </select>
+            </label>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              가격/등락률 수집 배치
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              종목검색의 상한가/하한가 필터는 전체 집계기업 가격 배치의 전일가격과
+              등락률을 사용합니다.
+            </p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 p-4 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={settings.metricPriceEnabled}
+                onChange={(event) =>
+                  updateSetting("metricPriceEnabled", event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              전체 집계기업 가격/등락률 매일 갱신
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              전체 가격 갱신 시간(KST)
+              <input
+                type="time"
+                value={settings.metricPriceTimeKst}
+                onChange={(event) =>
+                  updateSetting("metricPriceTimeKst", event.target.value)
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              전체 가격 갱신 대상
+              <select
+                value={settings.metricPriceMarket}
+                onChange={(event) =>
+                  updateSetting(
+                    "metricPriceMarket",
+                    event.target.value as BatchSettings["metricPriceMarket"]
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              >
+                <option value="ALL">한국+미국</option>
+                <option value="KR">한국만</option>
+                <option value="US">미국만</option>
+              </select>
+            </label>
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              전체 가격 1회 처리 건수
+              <input
+                type="number"
+                min={0}
+                max={10000}
+                value={settings.metricPriceLimit}
+                onChange={(event) =>
+                  updateSetting(
+                    "metricPriceLimit",
+                    Number(event.target.value) || 0
+                  )
+                }
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                0은 전체 실행입니다.
+              </span>
             </label>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 p-4 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
               <input

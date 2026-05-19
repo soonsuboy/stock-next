@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 
 export type MetricSelection = "all" | "missing" | "existing";
+export type MetricPriceMarket = "ALL" | "KR" | "US";
 
 export interface BatchSettings {
   scheduleEnabled: boolean;
@@ -15,6 +16,10 @@ export interface BatchSettings {
   usLimit: number;
   usShardCount: number;
   scheduledSelection: MetricSelection;
+  metricPriceEnabled: boolean;
+  metricPriceTimeKst: string;
+  metricPriceMarket: MetricPriceMarket;
+  metricPriceLimit: number;
   watchlistSkipRecentHours: number;
   watchlistPriceEnabled: boolean;
   watchlistPriceTimeKst: string;
@@ -38,6 +43,11 @@ export interface BatchSchedulerMeta {
   lastWatchlistPriceRunCompletedAt: string;
   lastWatchlistPriceRunStatus: string;
   lastWatchlistPriceCheckReason: string;
+  lastMetricPriceRunDateKst: string;
+  lastMetricPriceRunStartedAt: string;
+  lastMetricPriceRunCompletedAt: string;
+  lastMetricPriceRunStatus: string;
+  lastMetricPriceCheckReason: string;
 }
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -53,6 +63,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   us_limit: "1000",
   us_shard_count: "7",
   scheduled_selection: "all",
+  metric_price_enabled: "true",
+  metric_price_time_kst: "07:00",
+  metric_price_market: "ALL",
+  metric_price_limit: "0",
   watchlist_skip_recent_hours: "24",
   watchlist_price_enabled: "true",
   watchlist_price_time_kst: "06:30",
@@ -75,6 +89,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_watchlist_price_run_completed_at: "",
   last_watchlist_price_run_status: "",
   last_watchlist_price_check_reason: "",
+  last_metric_price_run_date_kst: "",
+  last_metric_price_run_started_at: "",
+  last_metric_price_run_completed_at: "",
+  last_metric_price_run_status: "",
+  last_metric_price_check_reason: "",
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
@@ -105,6 +124,11 @@ function parseSelection(value: string | undefined): MetricSelection {
   return "all";
 }
 
+function parseMetricPriceMarket(value: string | undefined): MetricPriceMarket {
+  if (value === "KR" || value === "US") return value;
+  return "ALL";
+}
+
 function serializeSettings(settings: BatchSettings): Record<string, string> {
   return {
     schedule_enabled: String(settings.scheduleEnabled),
@@ -119,6 +143,10 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
     us_limit: String(settings.usLimit),
     us_shard_count: String(settings.usShardCount),
     scheduled_selection: settings.scheduledSelection,
+    metric_price_enabled: String(settings.metricPriceEnabled),
+    metric_price_time_kst: settings.metricPriceTimeKst,
+    metric_price_market: settings.metricPriceMarket,
+    metric_price_limit: String(settings.metricPriceLimit),
     watchlist_skip_recent_hours: String(settings.watchlistSkipRecentHours),
     watchlist_price_enabled: String(settings.watchlistPriceEnabled),
     watchlist_price_time_kst: settings.watchlistPriceTimeKst,
@@ -150,6 +178,10 @@ function parseSettings(values: Record<string, string>): BatchSettings {
     usLimit: parseInteger(values.us_limit, 1000, 0, 5000),
     usShardCount: parseInteger(values.us_shard_count, 7, 1, 31),
     scheduledSelection: parseSelection(values.scheduled_selection),
+    metricPriceEnabled: parseBoolean(values.metric_price_enabled, true),
+    metricPriceTimeKst: parseTime(values.metric_price_time_kst, "07:00"),
+    metricPriceMarket: parseMetricPriceMarket(values.metric_price_market),
+    metricPriceLimit: parseInteger(values.metric_price_limit, 0, 0, 10000),
     watchlistSkipRecentHours: parseInteger(
       values.watchlist_skip_recent_hours,
       24,
@@ -227,7 +259,12 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
        'last_watchlist_price_run_started_at',
        'last_watchlist_price_run_completed_at',
        'last_watchlist_price_run_status',
-       'last_watchlist_price_check_reason'
+       'last_watchlist_price_check_reason',
+       'last_metric_price_run_date_kst',
+       'last_metric_price_run_started_at',
+       'last_metric_price_run_completed_at',
+       'last_metric_price_run_status',
+       'last_metric_price_check_reason'
      )`
   );
   const values = { ...DEFAULT_SETTINGS };
@@ -251,6 +288,12 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
       values.last_watchlist_price_run_completed_at,
     lastWatchlistPriceRunStatus: values.last_watchlist_price_run_status,
     lastWatchlistPriceCheckReason: values.last_watchlist_price_check_reason,
+    lastMetricPriceRunDateKst: values.last_metric_price_run_date_kst,
+    lastMetricPriceRunStartedAt: values.last_metric_price_run_started_at,
+    lastMetricPriceRunCompletedAt:
+      values.last_metric_price_run_completed_at,
+    lastMetricPriceRunStatus: values.last_metric_price_run_status,
+    lastMetricPriceCheckReason: values.last_metric_price_check_reason,
   };
 }
 
@@ -273,6 +316,10 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     us_limit: String(source.usLimit ?? "1000"),
     us_shard_count: String(source.usShardCount ?? "7"),
     scheduled_selection: String(source.scheduledSelection ?? "all"),
+    metric_price_enabled: String(source.metricPriceEnabled ?? "true"),
+    metric_price_time_kst: String(source.metricPriceTimeKst ?? "07:00"),
+    metric_price_market: String(source.metricPriceMarket ?? "ALL"),
+    metric_price_limit: String(source.metricPriceLimit ?? "0"),
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
     watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
     watchlist_price_time_kst: String(source.watchlistPriceTimeKst ?? "06:30"),

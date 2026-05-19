@@ -4,6 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminBatchStatus } from "@/lib/admin-data";
 import SectorManagementPanel from "@/app/admin/SectorManagementPanel";
 import UserManagementPanel from "@/app/admin/UserManagementPanel";
+import {
+  clearClientCache,
+  clearClientCachePrefix,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache";
 
 interface AdminDashboardProps {
   initialStatus: AdminBatchStatus | null;
@@ -99,6 +105,21 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "runs", label: "최근 배치 설정" },
 ];
 
+const ADMIN_STATUS_CACHE_PREFIX = "admin:status:v1:";
+const ADMIN_STATUS_CACHE_TTL_MS = 2 * 60 * 1000;
+const TELEGRAM_CHATS_CACHE_KEY = "admin:telegram:chats:v1";
+const TELEGRAM_SUMMARY_DATES_CACHE_KEY = "admin:telegram:summary-dates:v1";
+const TELEGRAM_DISCUSSION_CODES_CACHE_KEY = "admin:discussion-codes:v1";
+const TELEGRAM_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function adminStatusCacheKey(section: StatusSection) {
+  return `${ADMIN_STATUS_CACHE_PREFIX}${section}`;
+}
+
+function telegramRankingCacheKey(date: string, period: "day" | "week") {
+  return `admin:telegram:ranking:v1:${period}:${date}`;
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ko-KR").format(value);
 }
@@ -179,37 +200,61 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     [market, status?.coverage]
   );
 
+  const applyStatus = (nextStatus: AdminBatchStatus, section: StatusSection) => {
+    setStatus((current) => {
+      if (!current || section === "all") return nextStatus;
+      return {
+        ...current,
+        ...nextStatus,
+        coverage:
+          section === "coverage" ? nextStatus.coverage : current.coverage,
+        recentRuns:
+          section === "runs" ? nextStatus.recentRuns : current.recentRuns,
+      };
+    });
+    setSettings(nextStatus.settings);
+    setDiscussionCodeConfigured(
+      Boolean(nextStatus.discussionAccessCodeConfigured)
+    );
+    loadedStatusSectionsRef.current.add(section);
+    if (section === "all") {
+      loadedStatusSectionsRef.current.add("summary");
+      loadedStatusSectionsRef.current.add("coverage");
+      loadedStatusSectionsRef.current.add("runs");
+    }
+  };
+
   const refreshStatus = async (section: StatusSection = "summary") => {
-    if (section === "summary" || !status) setStatusLoading(true);
-    if (section === "coverage") setCoverageLoading(true);
-    if (section === "runs") setRunsLoading(true);
+    const cached = readClientCache<AdminBatchStatus>(
+      adminStatusCacheKey(section)
+    );
+
+    if (cached) {
+      applyStatus(cached, section);
+      setStatusLoading(false);
+      if (section === "coverage") setCoverageLoading(false);
+      if (section === "runs") setRunsLoading(false);
+    } else {
+      if (section === "summary" || !status) setStatusLoading(true);
+      if (section === "coverage") setCoverageLoading(true);
+      if (section === "runs") setRunsLoading(true);
+    }
+
     try {
       const response = await fetch(`/api/admin/status?section=${section}`);
       if (!response.ok) {
         throw new Error("관리자 상태를 다시 불러오지 못했습니다.");
       }
-      const nextStatus = await response.json();
-      setStatus((current) => {
-        if (!current || section === "all") return nextStatus;
-        return {
-          ...current,
-          ...nextStatus,
-          coverage:
-            section === "coverage" ? nextStatus.coverage : current.coverage,
-          recentRuns:
-            section === "runs" ? nextStatus.recentRuns : current.recentRuns,
-        };
-      });
-      setSettings(nextStatus.settings);
-      setDiscussionCodeConfigured(
-        Boolean(nextStatus.discussionAccessCodeConfigured)
+      const nextStatus = (await response.json()) as AdminBatchStatus;
+      writeClientCache(
+        adminStatusCacheKey(section),
+        nextStatus,
+        ADMIN_STATUS_CACHE_TTL_MS
       );
-      loadedStatusSectionsRef.current.add(section);
-      if (section === "all") {
-        loadedStatusSectionsRef.current.add("summary");
-        loadedStatusSectionsRef.current.add("coverage");
-        loadedStatusSectionsRef.current.add("runs");
-      }
+      applyStatus(nextStatus, section);
+    } catch (err) {
+      if (!cached) throw err;
+      console.warn("Admin status refresh failed after cache hit", err);
     } finally {
       if (section === "summary" || !status) setStatusLoading(false);
       if (section === "coverage") setCoverageLoading(false);
@@ -254,7 +299,15 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   }, [activeTab]);
 
   const refreshTelegramChats = async () => {
-    setTelegramLoading(true);
+    const cached = readClientCache<TelegramChat[]>(TELEGRAM_CHATS_CACHE_KEY);
+
+    if (cached) {
+      setTelegramChats(cached);
+      setTelegramLoading(false);
+    } else {
+      setTelegramLoading(true);
+    }
+
     setTelegramError("");
     try {
       const response = await fetch("/api/admin/telegram/chats");
@@ -262,18 +315,32 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       if (!response.ok) {
         throw new Error(data.error || "텔레그램 채팅방 조회 실패");
       }
-      setTelegramChats(data.chats || []);
+      const chats = data.chats || [];
+      writeClientCache(TELEGRAM_CHATS_CACHE_KEY, chats, TELEGRAM_CACHE_TTL_MS);
+      setTelegramChats(chats);
     } catch (err) {
-      setTelegramError(
-        err instanceof Error ? err.message : "텔레그램 채팅방 조회 중 오류 발생"
-      );
+      if (!cached) {
+        setTelegramError(
+          err instanceof Error ? err.message : "텔레그램 채팅방 조회 중 오류 발생"
+        );
+      }
     } finally {
       setTelegramLoading(false);
     }
   };
 
   const refreshTelegramSummaryDates = async () => {
-    setTelegramDatesLoading(true);
+    const cached = readClientCache<TelegramSummaryDate[]>(
+      TELEGRAM_SUMMARY_DATES_CACHE_KEY
+    );
+
+    if (cached) {
+      setTelegramSummaryDates(cached);
+      setTelegramDatesLoading(false);
+    } else {
+      setTelegramDatesLoading(true);
+    }
+
     setTelegramError("");
     try {
       const response = await fetch("/api/admin/telegram/summaries");
@@ -281,17 +348,35 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       if (!response.ok) {
         throw new Error(data.error || "텔레그램 요약 날짜 조회 실패");
       }
-      setTelegramSummaryDates(data.dates || []);
-    } catch (err) {
-      setTelegramError(
-        err instanceof Error ? err.message : "텔레그램 요약 날짜 조회 중 오류 발생"
+      const dates = data.dates || [];
+      writeClientCache(
+        TELEGRAM_SUMMARY_DATES_CACHE_KEY,
+        dates,
+        TELEGRAM_CACHE_TTL_MS
       );
+      setTelegramSummaryDates(dates);
+    } catch (err) {
+      if (!cached) {
+        setTelegramError(
+          err instanceof Error ? err.message : "텔레그램 요약 날짜 조회 중 오류 발생"
+        );
+      }
     } finally {
       setTelegramDatesLoading(false);
     }
   };
 
   const refreshDiscussionCodes = async () => {
+    const cached = readClientCache<{
+      codes: DiscussionAccessCode[];
+      configured: boolean;
+    }>(TELEGRAM_DISCUSSION_CODES_CACHE_KEY);
+
+    if (cached) {
+      setDiscussionCodes(cached.codes || []);
+      setDiscussionCodeConfigured(Boolean(cached.configured));
+    }
+
     setDiscussionCodeError("");
     try {
       const response = await fetch("/api/admin/discussion-code");
@@ -301,10 +386,20 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       }
       setDiscussionCodes(data.codes || []);
       setDiscussionCodeConfigured(Boolean(data.configured));
-    } catch (err) {
-      setDiscussionCodeError(
-        err instanceof Error ? err.message : "종목토론조회 코드 조회 중 오류 발생"
+      writeClientCache(
+        TELEGRAM_DISCUSSION_CODES_CACHE_KEY,
+        {
+          codes: data.codes || [],
+          configured: Boolean(data.configured),
+        },
+        TELEGRAM_CACHE_TTL_MS
       );
+    } catch (err) {
+      if (!cached) {
+        setDiscussionCodeError(
+          err instanceof Error ? err.message : "종목토론조회 코드 조회 중 오류 발생"
+        );
+      }
     }
   };
 
@@ -346,6 +441,12 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
         throw new Error(data.error || "텔레그램 채팅방 저장 실패");
       }
       setTelegramChats(data.chats || []);
+      writeClientCache(
+        TELEGRAM_CHATS_CACHE_KEY,
+        data.chats || [],
+        TELEGRAM_CACHE_TTL_MS
+      );
+      clearClientCache(TELEGRAM_SUMMARY_DATES_CACHE_KEY);
       setTelegramMessage("텔레그램 채팅방 설정을 저장했습니다.");
       await refreshTelegramSummaryDates();
     } catch (err) {
@@ -382,6 +483,9 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
             ? `${date} 요약 재시도를 요청했습니다. GitHub Actions 완료 후 날짜 목록을 새로고침하세요.`
           : "텔레그램 배치를 요청했습니다. GitHub Actions 완료 후 새로고침하세요."
       );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
+      clearClientCache(TELEGRAM_SUMMARY_DATES_CACHE_KEY);
+      clearClientCachePrefix("admin:telegram:ranking:v1:");
       await refreshStatus("runs");
       await refreshTelegramSummaryDates();
     } catch (err) {
@@ -397,7 +501,16 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
     date: string,
     period: "day" | "week"
   ) => {
-    setTelegramRankingLoading(true);
+    const cacheKey = telegramRankingCacheKey(date, period);
+    const cached = readClientCache<TelegramRanking>(cacheKey);
+
+    if (cached) {
+      setTelegramRanking(cached);
+      setTelegramRankingLoading(false);
+    } else {
+      setTelegramRankingLoading(true);
+    }
+
     setTelegramError("");
     try {
       const params = new URLSearchParams({ date, period });
@@ -406,11 +519,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       if (!response.ok) {
         throw new Error(data.error || "텔레그램 종목 랭킹 조회 실패");
       }
+      writeClientCache(cacheKey, data, TELEGRAM_CACHE_TTL_MS);
       setTelegramRanking(data);
     } catch (err) {
-      setTelegramError(
-        err instanceof Error ? err.message : "텔레그램 종목 랭킹 조회 중 오류 발생"
-      );
+      if (!cached) {
+        setTelegramError(
+          err instanceof Error ? err.message : "텔레그램 종목 랭킹 조회 중 오류 발생"
+        );
+      }
     } finally {
       setTelegramRankingLoading(false);
     }
@@ -447,6 +563,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setStatus((current) =>
         current ? { ...current, settings: data.settings } : current
       );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
       setSettingsMessage(successMessage);
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "배치 설정 저장 중 오류 발생");
@@ -489,6 +606,15 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setDiscussionCodeLabel("");
       setDiscussionCodeValue("");
       setDiscussionCodeDurationDays(30);
+      writeClientCache(
+        TELEGRAM_DISCUSSION_CODES_CACHE_KEY,
+        {
+          codes: data.codes || [],
+          configured: Boolean(data.configured),
+        },
+        TELEGRAM_CACHE_TTL_MS
+      );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
       setDiscussionCodeMessage("종목토론조회 코드를 추가했습니다.");
     } catch (err) {
       setDiscussionCodeError(
@@ -529,6 +655,15 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setDiscussionCodeMessage(
         active ? "종목토론조회 코드를 활성화했습니다." : "종목토론조회 코드를 비활성화했습니다."
       );
+      writeClientCache(
+        TELEGRAM_DISCUSSION_CODES_CACHE_KEY,
+        {
+          codes: data.codes || [],
+          configured: Boolean(data.configured),
+        },
+        TELEGRAM_CACHE_TTL_MS
+      );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
     } catch (err) {
       setDiscussionCodeError(
         err instanceof Error ? err.message : "종목토론조회 코드 상태 변경 중 오류 발생"
@@ -573,6 +708,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
                   : "재집계"
             } 배치를 요청했습니다. 최근 배치 실행에 요청 기록이 먼저 남고, GitHub Actions가 시작하면 실행 기록으로 갱신됩니다.`
       );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
       await refreshStatus("runs");
     } catch (err) {
       setError(err instanceof Error ? err.message : "배치 실행 중 오류 발생");
@@ -607,6 +743,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setMessage(
         "S&P500/KOSPI200 사전수집 배치를 요청했습니다. GitHub Actions에서 구성 종목을 갱신하고 미적재 재무/가격 데이터를 수집합니다."
       );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
       await refreshStatus("runs");
     } catch (err) {
       setError(

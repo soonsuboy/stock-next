@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readClientCache, writeClientCache } from "@/lib/client-cache";
 
 interface AnalysisData {
   code: string;
@@ -21,6 +22,13 @@ interface AnalysisData {
   net_income?: number;
   country: string;
 }
+
+interface AnalysisResponse {
+  stocks: AnalysisData[];
+}
+
+const ANALYSIS_CACHE_KEY = "analysis:v1";
+const ANALYSIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const formatCurrency = (value: number | null | undefined, country: string) => {
   if (value === null || value === undefined) return "-";
@@ -199,16 +207,30 @@ export default function AnalysisPage() {
   const [error, setError] = useState("");
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
 
-  const fetchAnalysisData = async () => {
-    setLoading(true);
+  const fetchAnalysisData = async (preferCache = true) => {
+    const cached = preferCache
+      ? readClientCache<AnalysisResponse>(ANALYSIS_CACHE_KEY)
+      : null;
+
+    if (cached) {
+      setStocks(cached.stocks || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    setError("");
     try {
       const response = await fetch("/api/watchlist/analysis");
       if (!response.ok) throw new Error("분석 데이터 조회 실패");
 
-      const data = await response.json();
+      const data = (await response.json()) as AnalysisResponse;
+      writeClientCache(ANALYSIS_CACHE_KEY, data, ANALYSIS_CACHE_TTL_MS);
       setStocks(data.stocks || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "조회 중 오류 발생");
+      if (!cached) {
+        setError(err instanceof Error ? err.message : "조회 중 오류 발생");
+      }
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache";
 
 interface ManagedUser {
   id: string;
@@ -17,6 +21,9 @@ interface ManagedUser {
   watchlistCount: number;
 }
 
+const ADMIN_USERS_CACHE_KEY = "admin:users:v1";
+const ADMIN_USERS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 function formatDateTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -31,8 +38,18 @@ export default function UserManagementPanel() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const refreshUsers = async () => {
-    setLoading(true);
+  const refreshUsers = async (preferCache = true) => {
+    const cached = preferCache
+      ? readClientCache<ManagedUser[]>(ADMIN_USERS_CACHE_KEY)
+      : null;
+
+    if (cached) {
+      setUsers(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setError("");
     try {
       const response = await fetch("/api/admin/users");
@@ -40,9 +57,13 @@ export default function UserManagementPanel() {
       if (!response.ok) {
         throw new Error(data.error || "사용자 조회 실패");
       }
-      setUsers(data.users || []);
+      const nextUsers = data.users || [];
+      writeClientCache(ADMIN_USERS_CACHE_KEY, nextUsers, ADMIN_USERS_CACHE_TTL_MS);
+      setUsers(nextUsers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "사용자 조회 중 오류 발생");
+      if (!cached) {
+        setError(err instanceof Error ? err.message : "사용자 조회 중 오류 발생");
+      }
     } finally {
       setLoading(false);
     }
@@ -70,7 +91,9 @@ export default function UserManagementPanel() {
         throw new Error(data.error || "사용자 상태 변경 실패");
       }
 
-      setUsers(data.users || []);
+      const nextUsers = data.users || [];
+      setUsers(nextUsers);
+      writeClientCache(ADMIN_USERS_CACHE_KEY, nextUsers, ADMIN_USERS_CACHE_TTL_MS);
       setMessage(
         `${target.email || target.name || target.id} 사용자를 ${
           target.active ? "비활성화" : "활성화"
@@ -94,7 +117,7 @@ export default function UserManagementPanel() {
         <button
           type="button"
           disabled={loading}
-          onClick={refreshUsers}
+          onClick={() => refreshUsers(false)}
           className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           목록 다시 읽기

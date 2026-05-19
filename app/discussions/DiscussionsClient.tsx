@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { readClientCache, writeClientCache } from "@/lib/client-cache";
 
 interface Chat {
   chatId: string;
@@ -75,6 +76,12 @@ interface DiscussionsClientProps {
 }
 
 type DiscussionTab = "telegram" | "study";
+const DISCUSSION_CACHE_TTL_MS = 2 * 60 * 1000;
+const STUDY_SUMMARY_CACHE_KEY = "discussions:study-summary:v1";
+
+function discussionCacheKey(chatId: string, date: string) {
+  return `discussions:telegram:v1:${chatId || "all"}:${date || "latest"}`;
+}
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -109,8 +116,25 @@ export default function DiscussionsClient({
   const [studyLoading, setStudyLoading] = useState(false);
   const [studyError, setStudyError] = useState("");
 
-  const loadData = async (nextChatId = chatId, nextDate = date) => {
-    setLoading(true);
+  const loadData = async (
+    nextChatId = chatId,
+    nextDate = date,
+    preferCache = true
+  ) => {
+    const cacheKey = discussionCacheKey(nextChatId, nextDate);
+    const cached = preferCache
+      ? readClientCache<DiscussionData>(cacheKey)
+      : null;
+
+    if (cached) {
+      setData(cached);
+      setChatId(cached.selectedChatId || "");
+      setDate(cached.selectedDate || "");
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setError("");
     const params = new URLSearchParams();
     if (nextChatId) params.set("chatId", nextChatId);
@@ -122,11 +146,14 @@ export default function DiscussionsClient({
       if (!response.ok) {
         throw new Error(payload.error || "종목 토론 조회 실패");
       }
+      writeClientCache(cacheKey, payload, DISCUSSION_CACHE_TTL_MS);
       setData(payload);
       setChatId(payload.selectedChatId || "");
       setDate(payload.selectedDate || "");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "종목 토론 조회 중 오류 발생");
+      if (!cached) {
+        setError(err instanceof Error ? err.message : "종목 토론 조회 중 오류 발생");
+      }
     } finally {
       setLoading(false);
     }
@@ -152,6 +179,11 @@ export default function DiscussionsClient({
 
   const summarizeStudyFeed = async () => {
     if (studyLoading) return;
+    const cached = readClientCache<StudySummaryResult>(STUDY_SUMMARY_CACHE_KEY);
+    if (cached) {
+      setStudySummary(cached);
+    }
+
     setStudyLoading(true);
     setStudyError("");
     try {
@@ -162,6 +194,7 @@ export default function DiscussionsClient({
       if (!response.ok) {
         throw new Error(payload.error || "스터디 피드 정리 실패");
       }
+      writeClientCache(STUDY_SUMMARY_CACHE_KEY, payload, 30 * 60 * 1000);
       setStudySummary(payload);
     } catch (err) {
       setStudyError(
@@ -270,7 +303,7 @@ export default function DiscussionsClient({
             </select>
             <button
               type="button"
-              onClick={() => void loadData(chatId, date)}
+              onClick={() => void loadData(chatId, date, false)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               새로고침

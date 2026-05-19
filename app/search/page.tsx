@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  clearClientCache,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache";
 
 interface Stock {
   code: string;
@@ -35,6 +40,23 @@ interface RankedPage {
 }
 
 const PAGE_SIZE = 30;
+const RANKED_CACHE_TTL_MS = 5 * 60 * 1000;
+const WATCHLIST_CACHE_KEY = "watchlist:v1";
+const ANALYSIS_CACHE_KEY = "analysis:v1";
+
+function rankedCacheKey(
+  sort: SortKey,
+  filter: RankFilter,
+  country: Country,
+  page: number
+) {
+  return `search:ranked:v1:${country}:${sort}:${filter}:${page}`;
+}
+
+function clearWatchlistRelatedCache() {
+  clearClientCache(WATCHLIST_CACHE_KEY);
+  clearClientCache(ANALYSIS_CACHE_KEY);
+}
 
 const sortOptions: Array<{ key: SortKey; label: string }> = [
   { key: "market_cap", label: "시가총액 높은 순" },
@@ -125,7 +147,16 @@ export default function SearchPage() {
     country: Country,
     page: number
   ) => {
-    setRankLoading(true);
+    const cacheKey = rankedCacheKey(sort, filter, country, page);
+    const cached = readClientCache<RankedPage>(cacheKey);
+
+    if (cached) {
+      setRanked(cached);
+      setRankLoading(false);
+    } else {
+      setRankLoading(true);
+    }
+
     setRankError("");
     try {
       const params = new URLSearchParams({
@@ -142,13 +173,17 @@ export default function SearchPage() {
       if (!response.ok) {
         throw new Error(data.error || "집계 기업 조회 실패");
       }
-      setRanked({
+      const nextRanked = {
         items: data.results || [],
         total: Number(data.total || 0),
         totalPages: Number(data.totalPages || 1),
-      });
+      };
+      writeClientCache(cacheKey, nextRanked, RANKED_CACHE_TTL_MS);
+      setRanked(nextRanked);
     } catch (err) {
-      setRankError(err instanceof Error ? err.message : "집계 기업 조회 중 오류 발생");
+      if (!cached) {
+        setRankError(err instanceof Error ? err.message : "집계 기업 조회 중 오류 발생");
+      }
     } finally {
       setRankLoading(false);
     }
@@ -209,6 +244,7 @@ export default function SearchPage() {
     try {
       const result = await addStockRequest(stock);
       setAddedStocks((current) => new Set([...current, key]));
+      if (result === "added") clearWatchlistRelatedCache();
       alert(
         result === "duplicate"
           ? `${stock.name}은(는) 이미 관심 종목에 있습니다.`
@@ -251,6 +287,7 @@ export default function SearchPage() {
     }
 
     setAddedStocks(nextAdded);
+    if (added > 0) clearWatchlistRelatedCache();
     setSelectedStocks((current) => {
       const next = { ...current };
       for (const stock of selected) {

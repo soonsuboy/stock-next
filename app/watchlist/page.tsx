@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  clearClientCache,
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache";
 
 interface WatchlistStock {
   id: number;
@@ -36,6 +41,20 @@ interface SectorGuide {
   guideRoe: string;
   summary: string;
   active: boolean;
+}
+
+interface WatchlistResponse {
+  stocks: WatchlistStock[];
+  sectors: SectorGuide[];
+}
+
+const WATCHLIST_CACHE_KEY = "watchlist:v1";
+const ANALYSIS_CACHE_KEY = "analysis:v1";
+const WATCHLIST_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function clearWatchlistRelatedCache() {
+  clearClientCache(WATCHLIST_CACHE_KEY);
+  clearClientCache(ANALYSIS_CACHE_KEY);
 }
 
 const normalizeSectorName = (value: unknown) => {
@@ -166,17 +185,35 @@ export default function WatchlistPage() {
   );
   const [sectorSavingId, setSectorSavingId] = useState<number | null>(null);
 
-  const fetchWatchlist = async () => {
-    setLoading(true);
+  const applyWatchlistData = (data: WatchlistResponse) => {
+    setStocks(data.stocks || []);
+    setSectorGuides(data.sectors || []);
+  };
+
+  const fetchWatchlist = async (preferCache = true) => {
+    const cached = preferCache
+      ? readClientCache<WatchlistResponse>(WATCHLIST_CACHE_KEY)
+      : null;
+
+    if (cached) {
+      applyWatchlistData(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    setError("");
     try {
       const response = await fetch("/api/watchlist");
       if (!response.ok) throw new Error("목록 조회 실패");
 
-      const data = await response.json();
-      setStocks(data.stocks || []);
-      setSectorGuides(data.sectors || []);
+      const data = (await response.json()) as WatchlistResponse;
+      writeClientCache(WATCHLIST_CACHE_KEY, data, WATCHLIST_CACHE_TTL_MS);
+      applyWatchlistData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "조회 중 오류 발생");
+      if (!cached) {
+        setError(err instanceof Error ? err.message : "조회 중 오류 발생");
+      }
     } finally {
       setLoading(false);
     }
@@ -186,6 +223,7 @@ export default function WatchlistPage() {
     queueMicrotask(() => {
       void fetchWatchlist();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRemoveStock = async (id: number, name: string) => {
@@ -198,6 +236,7 @@ export default function WatchlistPage() {
 
       if (!response.ok) throw new Error("제거 실패");
 
+      clearWatchlistRelatedCache();
       setStocks(stocks.filter((s) => s.id !== id));
       alert("제거되었습니다.");
     } catch (err) {
@@ -247,6 +286,7 @@ export default function WatchlistPage() {
             : item
         )
       );
+      clearWatchlistRelatedCache();
       setBatchMessage(`${stock.name} 섹터를 ${nextSector}(으)로 저장했습니다.`);
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : "섹터 저장 중 오류 발생");
@@ -299,6 +339,7 @@ export default function WatchlistPage() {
           }. ${skipRecentHours}시간 이내 집계된 ${skippedRecentCount}개는 스킵했습니다. 완료 후 새로고침하면 최신 값이 표시됩니다.`
         );
       }
+      clearWatchlistRelatedCache();
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : "재집계 요청 중 오류 발생");
     } finally {
@@ -360,6 +401,7 @@ export default function WatchlistPage() {
           summary ? `: ${summary}` : ""
         }. 재무제표와 최신 가격을 함께 가져오며, GitHub Actions 완료 후 새로고침하면 반영됩니다.`
       );
+      clearWatchlistRelatedCache();
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : "수동 수집 요청 중 오류 발생");
     } finally {

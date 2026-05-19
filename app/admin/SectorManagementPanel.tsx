@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { SectorGuide } from "@/lib/sector-guides";
+import {
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache";
 
 const emptyForm = {
   originalName: "",
@@ -15,6 +19,8 @@ const emptyForm = {
 };
 
 type SectorForm = typeof emptyForm;
+const ADMIN_SECTORS_CACHE_KEY = "admin:sectors:v1";
+const ADMIN_SECTORS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export default function SectorManagementPanel() {
   const [sectors, setSectors] = useState<SectorGuide[]>([]);
@@ -24,8 +30,18 @@ export default function SectorManagementPanel() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const refreshSectors = async () => {
-    setLoading(true);
+  const refreshSectors = async (preferCache = true) => {
+    const cached = preferCache
+      ? readClientCache<SectorGuide[]>(ADMIN_SECTORS_CACHE_KEY)
+      : null;
+
+    if (cached) {
+      setSectors(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setError("");
     try {
       const response = await fetch("/api/admin/sectors");
@@ -33,9 +49,17 @@ export default function SectorManagementPanel() {
       if (!response.ok) {
         throw new Error(data.error || "섹터 정보 조회 실패");
       }
-      setSectors(data.sectors || []);
+      const nextSectors = data.sectors || [];
+      writeClientCache(
+        ADMIN_SECTORS_CACHE_KEY,
+        nextSectors,
+        ADMIN_SECTORS_CACHE_TTL_MS
+      );
+      setSectors(nextSectors);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "섹터 정보 조회 중 오류 발생");
+      if (!cached) {
+        setError(err instanceof Error ? err.message : "섹터 정보 조회 중 오류 발생");
+      }
     } finally {
       setLoading(false);
     }
@@ -84,7 +108,13 @@ export default function SectorManagementPanel() {
       if (!response.ok) {
         throw new Error(data.error || "섹터 정보 저장 실패");
       }
-      setSectors(data.sectors || []);
+      const nextSectors = data.sectors || [];
+      setSectors(nextSectors);
+      writeClientCache(
+        ADMIN_SECTORS_CACHE_KEY,
+        nextSectors,
+        ADMIN_SECTORS_CACHE_TTL_MS
+      );
       setForm(emptyForm);
       setMessage("섹터 정보를 저장했습니다.");
     } catch (err) {
@@ -218,7 +248,7 @@ export default function SectorManagementPanel() {
           <button
             type="button"
             disabled={loading}
-            onClick={refreshSectors}
+            onClick={() => refreshSectors(false)}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             목록 다시 읽기

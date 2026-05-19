@@ -5,6 +5,7 @@ import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import { isAdminEmail } from "@/lib/admin";
 import NavigationProgress from "@/app/NavigationProgress";
+import SessionCacheBoundary from "@/app/SessionCacheBoundary";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,7 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-white dark:bg-slate-950">
+        <SessionCacheBoundary userId={session?.user?.id || null} />
         <NavigationProgress />
         {/* Navigation Header */}
         <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-40">

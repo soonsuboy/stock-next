@@ -20,14 +20,64 @@ interface AnalysisData {
   market_cap?: number;
   equity?: number;
   net_income?: number;
+  operating_income?: number | null;
+  total_liabilities?: number | null;
+  debt_ratio?: number | null;
   country: string;
+  insights?: InvestmentInsights | null;
 }
 
 interface AnalysisResponse {
   stocks: AnalysisData[];
 }
 
-const ANALYSIS_CACHE_KEY = "analysis:v1";
+interface InsightMetricValue {
+  value: number | null;
+  sectorMedian: number | null;
+  favorablePercentile: number | null;
+  label: string;
+}
+
+interface SectorRelativeInsight {
+  sector: string | null;
+  country: string;
+  peerCount: number;
+  per: InsightMetricValue;
+  pbr: InsightMetricValue;
+  roe: InsightMetricValue;
+}
+
+interface GrowthTrendInsight {
+  latestYear: string | null;
+  previousYear: string | null;
+  netIncomeGrowth: number | null;
+  operatingIncomeGrowth: number | null;
+  equityGrowth: number | null;
+  label: string;
+  summary: string;
+}
+
+interface QualityScoreComponent {
+  label: string;
+  score: number;
+  maxScore: number;
+  note: string;
+}
+
+interface QualityScoreInsight {
+  score: number | null;
+  grade: string;
+  components: QualityScoreComponent[];
+  summary: string;
+}
+
+interface InvestmentInsights {
+  sectorRelative: SectorRelativeInsight;
+  growthTrend: GrowthTrendInsight;
+  qualityScore: QualityScoreInsight;
+}
+
+const ANALYSIS_CACHE_KEY = "analysis:v2";
 const ANALYSIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const formatCurrency = (value: number | null | undefined, country: string) => {
@@ -39,6 +89,24 @@ const formatCurrency = (value: number | null | undefined, country: string) => {
     notation: "compact",
     maximumFractionDigits: country === "KR" ? 0 : 2,
   }).format(value);
+};
+
+const formatNumber = (value: number | null | undefined, suffix = "") => {
+  if (value === null || value === undefined) return "-";
+  return `${value.toFixed(2)}${suffix}`;
+};
+
+const formatPercentile = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "-";
+  return `상위 ${Math.max(0, 100 - value).toFixed(0)}%`;
+};
+
+const scoreTone = (score: number | null | undefined) => {
+  if (score === null || score === undefined) return "bg-slate-100 text-slate-600";
+  if (score >= 85) return "bg-green-100 text-green-800";
+  if (score >= 70) return "bg-blue-100 text-blue-800";
+  if (score >= 55) return "bg-amber-100 text-amber-800";
+  return "bg-red-100 text-red-800";
 };
 
 function CompanyProfilePanel({ stocks }: { stocks: AnalysisData[] }) {
@@ -196,6 +264,220 @@ function TriangleDiagram({ stock }: { stock: AnalysisData }) {
           <tspan x="552" dy="22">{stock.per?.toFixed(2)}</tspan>
         </text>
         </svg>
+      </div>
+    </div>
+  );
+}
+
+function MetricComparisonRow({
+  label,
+  metric,
+  suffix = "",
+}: {
+  label: string;
+  metric: InsightMetricValue;
+  suffix?: string;
+}) {
+  return (
+    <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-950">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+          {label}
+        </span>
+        <span className="rounded bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          {metric.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-slate-500 dark:text-slate-400">내 값</p>
+          <p className="font-bold text-slate-900 dark:text-white">
+            {formatNumber(metric.value, suffix)}
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-500 dark:text-slate-400">섹터 중앙값</p>
+          <p className="font-bold text-slate-900 dark:text-white">
+            {formatNumber(metric.sectorMedian, suffix)}
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-500 dark:text-slate-400">우호 분위</p>
+          <p className="font-bold text-slate-900 dark:text-white">
+            {formatPercentile(metric.favorablePercentile)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrowthMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | null;
+}) {
+  const tone =
+    value === null
+      ? "text-slate-500"
+      : value >= 0
+        ? "text-green-700 dark:text-green-300"
+        : "text-red-700 dark:text-red-300";
+
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-slate-600 dark:text-slate-400">{label}</span>
+      <span className={`font-bold ${tone}`}>{formatNumber(value, "%")}</span>
+    </div>
+  );
+}
+
+function InvestmentInsightPanel({ stocks }: { stocks: AnalysisData[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-5">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+          투자 인사이트
+        </h3>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          섹터 내 상대평가, 성장률 추세, 퀄리티 점수를 단계별로 계산합니다.
+        </p>
+      </div>
+
+      <div className="space-y-5">
+        {stocks.map((stock) => {
+          const insights = stock.insights;
+
+          if (!insights) {
+            return (
+              <article
+                key={`${stock.country}:${stock.code}`}
+                className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700"
+              >
+                {stock.name}의 인사이트 계산 데이터가 아직 없습니다.
+              </article>
+            );
+          }
+
+          const { sectorRelative, growthTrend, qualityScore } = insights;
+
+          return (
+            <article
+              key={`${stock.country}:${stock.code}`}
+              className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+            >
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                    {stock.name}
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {stock.code} · {sectorRelative.sector || "미분류"} · 비교군{" "}
+                    {sectorRelative.peerCount.toLocaleString("ko-KR")}개
+                  </p>
+                </div>
+                <span
+                  className={`rounded px-3 py-1 text-sm font-extrabold ${scoreTone(
+                    qualityScore.score
+                  )}`}
+                >
+                  Quality {qualityScore.grade}
+                  {qualityScore.score !== null ? ` · ${qualityScore.score}점` : ""}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <section>
+                  <h5 className="mb-3 text-sm font-bold text-slate-900 dark:text-white">
+                    1. 섹터 내 상대평가
+                  </h5>
+                  <div className="space-y-2">
+                    <MetricComparisonRow label="PER" metric={sectorRelative.per} />
+                    <MetricComparisonRow label="PBR" metric={sectorRelative.pbr} />
+                    <MetricComparisonRow
+                      label="ROE"
+                      metric={sectorRelative.roe}
+                      suffix="%"
+                    />
+                  </div>
+                </section>
+
+                <section>
+                  <h5 className="mb-3 text-sm font-bold text-slate-900 dark:text-white">
+                    2. 성장률 추세
+                  </h5>
+                  <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-950">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                        {growthTrend.label}
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {growthTrend.previousYear || "-"} →{" "}
+                        {growthTrend.latestYear || "-"}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <GrowthMetric
+                        label="순이익 성장률"
+                        value={growthTrend.netIncomeGrowth}
+                      />
+                      <GrowthMetric
+                        label="영업이익 성장률"
+                        value={growthTrend.operatingIncomeGrowth}
+                      />
+                      <GrowthMetric
+                        label="자본 성장률"
+                        value={growthTrend.equityGrowth}
+                      />
+                    </div>
+                    <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                      {growthTrend.summary}
+                    </p>
+                  </div>
+                </section>
+
+                <section>
+                  <h5 className="mb-3 text-sm font-bold text-slate-900 dark:text-white">
+                    3. 퀄리티 점수
+                  </h5>
+                  <div className="space-y-3 rounded-lg bg-slate-50 p-4 dark:bg-slate-950">
+                    {qualityScore.components.map((component) => (
+                      <div key={component.label}>
+                        <div className="mb-1 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">
+                            {component.label}
+                          </span>
+                          <span className="text-slate-500 dark:text-slate-400">
+                            {component.score}/{component.maxScore}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                          <div
+                            className="h-full rounded-full bg-blue-600"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (component.score / component.maxScore) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {component.note}
+                        </p>
+                      </div>
+                    ))}
+                    <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                      {qualityScore.summary}
+                    </p>
+                  </div>
+                </section>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -385,6 +667,8 @@ export default function AnalysisPage() {
               </div>
 
               <CompanyProfilePanel stocks={validStocks} />
+
+              <InvestmentInsightPanel stocks={validStocks} />
 
               {/* Metrics Summary */}
               <div className="p-6 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800">

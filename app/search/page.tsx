@@ -42,7 +42,7 @@ interface RankedPage {
 const PAGE_SIZE = 30;
 const RANKED_CACHE_TTL_MS = 5 * 60 * 1000;
 const WATCHLIST_CACHE_KEY = "watchlist:v1";
-const ANALYSIS_CACHE_KEY = "analysis:v1";
+const ANALYSIS_CACHE_KEY = "analysis:v2";
 
 function rankedCacheKey(
   sort: SortKey,

@@ -49,7 +49,7 @@ interface WatchlistResponse {
 }
 
 const WATCHLIST_CACHE_KEY = "watchlist:v1";
-const ANALYSIS_CACHE_KEY = "analysis:v1";
+const ANALYSIS_CACHE_KEY = "analysis:v2";
 const WATCHLIST_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function clearWatchlistRelatedCache() {

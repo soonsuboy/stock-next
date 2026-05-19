@@ -3,6 +3,10 @@ import { db } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { ensureCompanySectorColumns } from "@/lib/company-sector-schema";
 import { buildCompanyProfile } from "@/lib/company-profile";
+import {
+  buildInvestmentInsights,
+  type InsightStockInput,
+} from "@/lib/investment-insights";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -21,6 +25,9 @@ export async function GET() {
               m.market_cap,
               m.equity,
               m.net_income,
+              m.operating_income,
+              m.total_liabilities,
+              m.debt_ratio,
               m.roe,
               m.pbr,
               m.per
@@ -60,12 +67,39 @@ export async function GET() {
       market_cap: row.market_cap,
       equity: row.equity,
       net_income: row.net_income,
+      operating_income: row.operating_income,
+      total_liabilities: row.total_liabilities,
+      debt_ratio: row.debt_ratio,
       roe: row.roe,
       pbr: row.pbr,
       per: row.per,
     }));
 
-    return NextResponse.json({ stocks });
+    const insightInputs: InsightStockInput[] = stocks.map((stock) => ({
+      code: String(stock.code),
+      country: String(stock.country),
+      gics_sector:
+        typeof stock.gics_sector === "string" ? stock.gics_sector : null,
+      per: typeof stock.per === "number" ? stock.per : null,
+      pbr: typeof stock.pbr === "number" ? stock.pbr : null,
+      roe: typeof stock.roe === "number" ? stock.roe : null,
+      equity: typeof stock.equity === "number" ? stock.equity : null,
+      net_income:
+        typeof stock.net_income === "number" ? stock.net_income : null,
+      operating_income:
+        typeof stock.operating_income === "number"
+          ? stock.operating_income
+          : null,
+      debt_ratio:
+        typeof stock.debt_ratio === "number" ? stock.debt_ratio : null,
+    }));
+    const insightsByStock = await buildInvestmentInsights(insightInputs);
+    const enrichedStocks = stocks.map((stock) => ({
+      ...stock,
+      insights: insightsByStock.get(`${stock.country}:${stock.code}`) || null,
+    }));
+
+    return NextResponse.json({ stocks: enrichedStocks });
   } catch (error) {
     console.error("Analysis data fetch error:", error);
     return NextResponse.json(

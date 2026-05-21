@@ -1,5 +1,7 @@
 import os
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -46,6 +48,56 @@ def base_url() -> str:
   return KIS_DEMO_BASE_URL if env_name() == "demo" else KIS_PROD_BASE_URL
 
 
+def token_cache_path() -> Path:
+  custom = (os.environ.get("KIS_TOKEN_CACHE_PATH") or "").strip()
+  if custom:
+    return Path(custom)
+  return Path(__file__).resolve().parents[1] / ".cache" / f"kis_token_{env_name()}.json"
+
+
+def read_cached_token() -> tuple[str | None, float]:
+  env_token = (os.environ.get("KIS_ACCESS_TOKEN") or "").strip()
+  if env_token:
+    expires_at = to_number(os.environ.get("KIS_ACCESS_TOKEN_EXPIRES_AT"))
+    return env_token, expires_at or (time.time() + 3_600)
+
+  path = token_cache_path()
+  if not path.exists():
+    return None, 0.0
+
+  try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    token = str(data.get("access_token") or "").strip()
+    expires_at = to_number(data.get("expires_at")) or 0.0
+    if token and expires_at > time.time() + 60:
+      return token, expires_at
+  except Exception:
+    return None, 0.0
+
+  return None, 0.0
+
+
+def write_cached_token(token: str, expires_at: float) -> None:
+  try:
+    path = token_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+      json.dumps(
+        {
+          "access_token": token,
+          "expires_at": expires_at,
+          "env": env_name(),
+          "base_url": base_url(),
+          "saved_at": time.time(),
+        },
+        ensure_ascii=False,
+      ),
+      encoding="utf-8",
+    )
+  except Exception:
+    pass
+
+
 def request_delay() -> float:
   raw = (os.environ.get("KIS_REQUEST_DELAY_SECONDS") or "0.12").strip()
   try:
@@ -79,6 +131,12 @@ def get_access_token() -> str:
   if _TOKEN and time.time() < _TOKEN_EXPIRES_AT:
     return _TOKEN
 
+  cached_token, cached_expires_at = read_cached_token()
+  if cached_token and cached_expires_at > time.time() + 60:
+    _TOKEN = cached_token
+    _TOKEN_EXPIRES_AT = cached_expires_at
+    return _TOKEN
+
   throttle()
   response = requests.post(
     f"{base_url()}/oauth2/tokenP",
@@ -103,6 +161,7 @@ def get_access_token() -> str:
   expires_in = int(to_number(data.get("expires_in")) or 86_400)
   _TOKEN = str(token)
   _TOKEN_EXPIRES_AT = time.time() + max(60, expires_in - 300)
+  write_cached_token(_TOKEN, _TOKEN_EXPIRES_AT)
   return _TOKEN
 
 

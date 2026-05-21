@@ -7,8 +7,7 @@ from typing import Any
 from db import execute, execute_many
 from update_metrics import (
   ADR_SHARE_RATIO,
-  fetch_kr_quote,
-  fetch_stooq_quote,
+  fetch_best_quote,
   now_text,
   price_change_rate,
   safe_div,
@@ -181,9 +180,10 @@ def fetch_latest_price_and_shares(
   country = str(row["country"])
   code = str(row["code"])
   stored_shares = to_number(row.get("shares_outstanding")) or implied_shares(row)
+  quote = fetch_best_quote(country, code, row.get("market"))
+  market_source = str(quote.get("source") or ("daum" if country == "KR" else "stooq"))
 
   if country == "KR":
-    quote = fetch_kr_quote(code)
     price = to_number(quote.get("price"))
     previous_close = to_number(quote.get("previous_close"))
     quote_shares = to_number(quote.get("shares"))
@@ -191,9 +191,8 @@ def fetch_latest_price_and_shares(
     market_cap = to_number(quote.get("market_cap"))
     if market_cap is None and price is not None and shares is not None:
       market_cap = price * shares
-    return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, "daum"
+    return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, market_source
 
-  quote = fetch_stooq_quote(code)
   price = to_number(quote.get("price"))
   previous_close = to_number(quote.get("previous_close"))
   shares = stored_shares
@@ -201,7 +200,7 @@ def fetch_latest_price_and_shares(
   if ratio != 1.0 and shares is not None and shares > 10_000_000_000:
     shares = shares / ratio
   market_cap = price * shares if price is not None and shares is not None else None
-  return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, "stooq"
+  return price, previous_close, price_change_rate(price, previous_close), market_cap, shares, market_source
 
 
 def build_metric_row(row: dict[str, Any]) -> tuple[Any, ...]:

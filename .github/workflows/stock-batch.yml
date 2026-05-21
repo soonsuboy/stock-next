@@ -76,6 +76,11 @@ jobs:
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ENV: ${{ vars.KIS_ENV }}
+      KIS_BASE_URL: ${{ vars.KIS_BASE_URL }}
+      KIS_REQUEST_DELAY_SECONDS: ${{ vars.KIS_REQUEST_DELAY_SECONDS }}
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
       TELEGRAM_SESSION_STRING: ${{ secrets.TELEGRAM_SESSION_STRING }}

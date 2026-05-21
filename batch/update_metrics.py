@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from db import execute, execute_many
+from kis_client import KISConfigError, fetch_kis_quote, is_configured as is_kis_configured
 
 UA = (
   os.environ.get("SEC_USER_AGENT")
@@ -516,7 +517,30 @@ def fetch_stooq_quote(symbol: str) -> dict[str, Any]:
     "price": price,
     "previous_close": previous_close,
     "change_rate": price_change_rate(price, previous_close),
+    "source": "stooq",
   }
+
+
+def fetch_best_quote(country: str, code: str, market: str | None = None) -> dict[str, Any]:
+  if is_kis_configured():
+    try:
+      quote = fetch_kis_quote(country, code, market)
+      if quote.get("price") is not None:
+        return quote
+      print(f"Warning: KIS quote missing price for {country}:{code}", flush=True)
+    except KISConfigError:
+      pass
+    except Exception as error:
+      print(f"Warning: KIS quote failed for {country}:{code}: {error}", flush=True)
+
+  if country == "KR":
+    quote = fetch_kr_quote(code)
+    quote["source"] = "daum"
+    return quote
+
+  quote = fetch_stooq_quote(code)
+  quote["source"] = "stooq"
+  return quote
 
 
 def fetch_stooq_fx_to_usd(currency: str) -> tuple[float | None, str]:
@@ -928,9 +952,9 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
   code = str(company["code"])
   name = str(company["name"])
   currency = str(company.get("currency") or ("KRW" if country == "KR" else "USD"))
+  quote = fetch_best_quote(country, code, company.get("market"))
 
   if country == "KR":
-    quote = fetch_kr_quote(code)
     try:
       financials = fetch_dart_financials(company)
     except Exception as error:
@@ -952,7 +976,6 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
     shares = quote.get("shares")
     market_cap = quote.get("market_cap")
   else:
-    quote = fetch_stooq_quote(code)
     try:
       financials = fetch_sec_financials(company)
     except Exception as error:
@@ -993,11 +1016,11 @@ def build_metric_row(company: dict[str, Any]) -> tuple[Any, ...]:
     raise RuntimeError("no usable metric values collected")
 
   source = {
-    "market": "daum" if country == "KR" else "stooq",
+    "market": quote.get("source") or ("daum" if country == "KR" else "stooq"),
     "financials": financials.get("source"),
   }
   if country == "KR" and shares is not None:
-    source["shares"] = "daum"
+    source["shares"] = quote.get("source") or "daum"
   if country == "US":
     source["shares"] = share_source
   if country == "US" and ADR_SHARE_RATIO.get(code):

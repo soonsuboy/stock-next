@@ -14,6 +14,7 @@ export interface StockBatchDispatchInputs {
   shardIndex?: string;
   shardCount?: string;
   requestId?: string;
+  priceMarket?: "ALL" | "KR" | "US";
   telegramDate?: string;
   telegramBackfill?: "true" | "false";
   dryRun?: "true" | "false";
@@ -55,6 +56,7 @@ export async function dispatchStockBatchWorkflow(
     shard_count: inputs.shardCount || "1",
     codes: inputs.codes || "",
     request_id: inputs.requestId || "",
+    price_market: inputs.priceMarket || "ALL",
     telegram_date: inputs.telegramDate || "",
     telegram_backfill: inputs.telegramBackfill || "false",
     dry_run: inputs.dryRun || "false",

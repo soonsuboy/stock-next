@@ -155,6 +155,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [selection, setSelection] = useState<Selection>("missing");
   const [manualCodes, setManualCodes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [priceSubmitting, setPriceSubmitting] = useState(false);
   const [indexSubmitting, setIndexSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -714,6 +715,41 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setError(err instanceof Error ? err.message : "배치 실행 중 오류 발생");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const dispatchPriceBatch = async () => {
+    if (!status) return;
+    setPriceSubmitting(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/trigger-price-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          market: "ALL",
+          limit,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "가격 배치 실행 요청 실패");
+      }
+
+      setMessage(
+        `DB에 재무/가격 이력이 있는 기업 ${formatNumber(
+          limit
+        )}건의 가격 전용 배치를 요청했습니다. KIS API를 1순위로 사용하고 실패한 종목은 기존 fallback으로 조회합니다.`
+      );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
+      await refreshStatus("runs");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "가격 배치 실행 중 오류 발생");
+    } finally {
+      setPriceSubmitting(false);
     }
   };
 
@@ -1907,6 +1943,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
             >
               {submitting && selection === "existing" ? "요청 중..." : "기존 기업 재집계"}
+            </button>
+            <button
+              type="button"
+              disabled={priceSubmitting || !status.workflowDispatchConfigured}
+              onClick={dispatchPriceBatch}
+              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {priceSubmitting ? "요청 중..." : "DB 적재기업 가격만 갱신"}
             </button>
             <button
               type="button"

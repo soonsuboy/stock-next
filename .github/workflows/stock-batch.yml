@@ -48,6 +48,15 @@ on:
           - missing
           - existing
           - incomplete
+      price_market:
+        description: "Price refresh market for metric_prices: ALL, KR, or US"
+        required: false
+        default: "ALL"
+        type: choice
+        options:
+          - ALL
+          - KR
+          - US
       request_id:
         description: "Optional pre-created batch_runs id"
         required: false
@@ -119,6 +128,7 @@ jobs:
           limit="${{ inputs.limit }}"
           codes="${{ inputs.codes }}"
           selection="${{ inputs.selection }}"
+          price_market="${{ inputs.price_market }}"
           request_id="${{ inputs.request_id }}"
           telegram_date="${{ inputs.telegram_date }}"
           telegram_backfill="${{ inputs.telegram_backfill }}"
@@ -174,7 +184,7 @@ jobs:
             python batch/update_watchlist_prices.py --market ALL "${price_extra[@]}"
           fi
           if [ "$mode" = "metric_prices" ]; then
-            python batch/update_watchlist_prices.py --scope metrics --market ALL "${price_extra[@]}"
+            python batch/update_watchlist_prices.py --scope metrics --market "$price_market" "${price_extra[@]}"
           fi
           if [ "$mode" = "telegram_dialogs" ]; then
             telegram_extra=()

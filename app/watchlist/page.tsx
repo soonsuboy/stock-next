@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   clearClientCache,
@@ -48,9 +48,24 @@ interface WatchlistResponse {
   sectors: SectorGuide[];
 }
 
+type WatchlistSortKey = "added_at" | "roe" | "pbr" | "per" | "price" | "market_cap";
+type SortDirection = "asc" | "desc";
+
 const WATCHLIST_CACHE_KEY = "watchlist:v1";
 const ANALYSIS_CACHE_KEY = "analysis:v2";
 const WATCHLIST_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const sortOptions: Array<{
+  key: Exclude<WatchlistSortKey, "added_at">;
+  label: string;
+  defaultDirection: SortDirection;
+}> = [
+  { key: "roe", label: "ROE", defaultDirection: "desc" },
+  { key: "pbr", label: "PBR", defaultDirection: "asc" },
+  { key: "per", label: "PER", defaultDirection: "asc" },
+  { key: "price", label: "주식가격", defaultDirection: "desc" },
+  { key: "market_cap", label: "시가총액", defaultDirection: "desc" },
+];
 
 function clearWatchlistRelatedCache() {
   clearClientCache(WATCHLIST_CACHE_KEY);
@@ -123,6 +138,16 @@ const isCollectedWithin24Hours = (value: string | null | undefined) => {
   return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
 };
 
+const sortValue = (stock: WatchlistStock, key: WatchlistSortKey) => {
+  if (key === "added_at") {
+    const date = parseDateValue(stock.added_at);
+    return date ? date.getTime() : null;
+  }
+
+  const value = stock[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
 function SectorTooltip({ guide }: { guide: SectorGuide }) {
   return (
     <span className="group relative inline-flex">
@@ -184,6 +209,8 @@ export default function WatchlistPage() {
     null
   );
   const [sectorSavingId, setSectorSavingId] = useState<number | null>(null);
+  const [sortKey, setSortKey] = useState<WatchlistSortKey>("added_at");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const applyWatchlistData = (data: WatchlistResponse) => {
     setStocks(data.stocks || []);
@@ -409,6 +436,42 @@ export default function WatchlistPage() {
     }
   };
 
+  const handleSortChange = (
+    key: Exclude<WatchlistSortKey, "added_at">,
+    defaultDirection: SortDirection
+  ) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortKey(key);
+    setSortDirection(defaultDirection);
+  };
+
+  const sortedStocks = useMemo(() => {
+    return [...stocks].sort((a, b) => {
+      const aValue = sortValue(a, sortKey);
+      const bValue = sortValue(b, sortKey);
+
+      if (aValue === null && bValue === null) {
+        const aAdded = sortValue(a, "added_at") || 0;
+        const bAdded = sortValue(b, "added_at") || 0;
+        return bAdded - aAdded;
+      }
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+
+      const result = aValue - bValue;
+      if (result === 0) {
+        const aAdded = sortValue(a, "added_at") || 0;
+        const bAdded = sortValue(b, "added_at") || 0;
+        return bAdded - aAdded;
+      }
+      return sortDirection === "asc" ? result : -result;
+    });
+  }, [sortDirection, sortKey, stocks]);
+
   if (loading) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-8">
@@ -424,7 +487,7 @@ export default function WatchlistPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-8 flex items-center justify-between gap-4">
+      <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-4xl font-bold text-slate-900 dark:text-white">
             관심 종목
@@ -434,7 +497,7 @@ export default function WatchlistPage() {
           </p>
         </div>
         {stocks.length > 0 && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Link
               href="/search"
               className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700"
@@ -490,215 +553,194 @@ export default function WatchlistPage() {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {stocks.map((stock) => {
-            const hasMetrics =
-              stock.market_cap !== null ||
-              stock.equity !== null ||
-              stock.net_income !== null ||
-              stock.per !== null ||
-              stock.pbr !== null ||
-              stock.roe !== null;
-            const gicsSector = normalizeSectorName(stock.gics_sector);
-            const sectorGuide = sectorGuides.find(
-              (sector) => sector.name === gicsSector
-            );
-            const hasMissingMetrics = hasMissingMetricData(stock);
+        <section>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-slate-600 dark:text-slate-400">
+              총 {stocks.length.toLocaleString("ko-KR")}개 관심종목
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {sortOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() =>
+                    handleSortChange(option.key, option.defaultDirection)
+                  }
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    sortKey === option.key
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                      : "border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {option.label}
+                  {sortKey === option.key &&
+                    (sortDirection === "asc" ? " ▲" : " ▼")}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            return (
-              <div
-                key={stock.id}
-                className="rounded-lg border border-slate-200 p-6 transition hover:shadow-lg dark:border-slate-700"
-              >
-                <div className="mb-4 flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                      {stock.name}
-                    </h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {stock.code} - {stock.market}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <label
-                        htmlFor={`sector-${stock.id}`}
-                        className="font-semibold text-slate-600 dark:text-slate-300"
-                      >
-                        섹터
-                      </label>
-                      <select
-                        id={`sector-${stock.id}`}
-                        value={gicsSector || ""}
-                        onChange={(event) =>
-                          handleUpdateSector(stock, event.target.value)
-                        }
-                        disabled={sectorSavingId !== null}
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-blue-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900"
-                      >
-                        <option value="">미분류</option>
-                        {sectorGuides.map((sector) => (
-                          <option key={sector.name} value={sector.name}>
-                            {sector.name}
-                          </option>
-                        ))}
-                      </select>
-                      {sectorGuide && <SectorTooltip guide={sectorGuide} />}
-                      {sectorSavingId === stock.id && (
-                        <span className="text-blue-600 dark:text-blue-300">
-                          저장 중...
-                        </span>
-                      )}
-                      {stock.sector_source === "user_manual" && (
-                        <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-200">
-                          수동
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
-                    {stock.country === "KR" ? "KR" : "US"}
-                  </span>
-                </div>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+            <table className="min-w-[1680px] w-full border-collapse text-sm">
+              <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                <tr>
+                  <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left dark:bg-slate-900">
+                    기업명
+                  </th>
+                  <th className="px-3 py-3 text-left">섹터</th>
+                  <th className="px-3 py-3 text-right">ROE</th>
+                  <th className="px-3 py-3 text-right">PBR</th>
+                  <th className="px-3 py-3 text-right">PER</th>
+                  <th className="px-3 py-3 text-right">가격</th>
+                  <th className="px-3 py-3 text-right">전일가격</th>
+                  <th className="px-3 py-3 text-right">등락률</th>
+                  <th className="px-3 py-3 text-right">시가총액</th>
+                  <th className="px-3 py-3 text-right">주식수</th>
+                  <th className="px-3 py-3 text-right">자본총계</th>
+                  <th className="px-3 py-3 text-right">당기순이익</th>
+                  <th className="px-3 py-3 text-left">집계시각</th>
+                  <th className="px-3 py-3 text-left">관리</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {sortedStocks.map((stock) => {
+                  const gicsSector = normalizeSectorName(stock.gics_sector);
+                  const sectorGuide = sectorGuides.find(
+                    (sector) => sector.name === gicsSector
+                  );
+                  const hasMissingMetrics = hasMissingMetricData(stock);
 
-                {hasMetrics ? (
-                  <>
-                    <div className="mb-3 grid grid-cols-3 gap-3 rounded bg-slate-50 p-3 dark:bg-slate-800">
-                      <div className="text-center">
-                        <p className="text-xs text-slate-600 dark:text-slate-400">
-                          PER
-                        </p>
-                        <p className="text-lg font-bold text-slate-900 dark:text-white">
-                          {formatMetric(stock.per)}
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-slate-600 dark:text-slate-400">
-                          PBR
-                        </p>
-                        <p className="text-lg font-bold text-slate-900 dark:text-white">
-                          {formatMetric(stock.pbr)}
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-slate-600 dark:text-slate-400">
-                          ROE
-                        </p>
-                        <p className="text-lg font-bold text-slate-900 dark:text-white">
-                          {formatMetric(stock.roe, "%")}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mb-4 grid grid-cols-1 gap-2 rounded border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-600 dark:text-slate-400">
-                          최근 가격
-                        </span>
-                        <span className="text-right font-semibold text-slate-900 dark:text-white">
-                          <span className="inline-flex flex-wrap items-center justify-end gap-2">
-                            <span>
-                              {formatCurrency(stock.price, stock.country, false)}
+                  return (
+                    <tr
+                      key={stock.id}
+                      className="transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    >
+                      <td className="sticky left-0 z-10 bg-white px-4 py-3 dark:bg-slate-950">
+                        <div className="max-w-[300px]">
+                          <div className="font-semibold text-slate-900 dark:text-white">
+                            {stock.name}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {stock.code} · {stock.market} ·{" "}
+                            {stock.country === "KR" ? "KR" : "US"}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <select
+                            id={`sector-${stock.id}`}
+                            value={gicsSector || ""}
+                            onChange={(event) =>
+                              handleUpdateSector(stock, event.target.value)
+                            }
+                            disabled={sectorSavingId !== null}
+                            className="w-36 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-blue-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900"
+                          >
+                            <option value="">미분류</option>
+                            {sectorGuides.map((sector) => (
+                              <option key={sector.name} value={sector.name}>
+                                {sector.name}
+                              </option>
+                            ))}
+                          </select>
+                          {sectorGuide && <SectorTooltip guide={sectorGuide} />}
+                          {stock.sector_source === "user_manual" && (
+                            <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                              수동
                             </span>
-                            <ChangeRateBadge value={stock.change_rate} />
-                          </span>
-                          {stock.previous_close !== null &&
-                            stock.previous_close !== undefined && (
-                              <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
-                                전일{" "}
-                                {formatCurrency(
-                                  stock.previous_close,
-                                  stock.country,
-                                  false
-                                )}
+                          )}
+                          {sectorSavingId === stock.id && (
+                            <span className="text-xs text-blue-600 dark:text-blue-300">
+                              저장 중
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold">
+                        {formatMetric(stock.roe, "%")}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold">
+                        {formatMetric(stock.pbr)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold">
+                        {formatMetric(stock.per)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(stock.price, stock.country, false)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatCurrency(stock.previous_close, stock.country, false)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right">
+                        <ChangeRateBadge value={stock.change_rate} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(stock.market_cap, stock.country)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatShares(stock.shares_outstanding)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatCurrency(stock.equity, stock.country)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700 dark:text-slate-200">
+                        {formatCurrency(stock.net_income, stock.country)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                        {stock.collected_at ? (
+                          <>
+                            {formatDateTime(stock.collected_at)}
+                            {isCollectedWithin24Hours(stock.collected_at) && (
+                              <span className="ml-1 rounded bg-green-50 px-1.5 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-950 dark:text-green-200">
+                                24h
                               </span>
                             )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-600 dark:text-slate-400">
-                          주식수
-                        </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {formatShares(stock.shares_outstanding)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-600 dark:text-slate-400">
-                          시가총액
-                        </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {formatCurrency(stock.market_cap, stock.country)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-600 dark:text-slate-400">
-                          자본총계
-                        </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {formatCurrency(stock.equity, stock.country)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-600 dark:text-slate-400">
-                          당기순이익
-                        </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {formatCurrency(stock.net_income, stock.country)}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="mb-4 rounded bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                    아직 배치로 적재된 재무제표 데이터가 없습니다.
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <Link
-                    href="/analysis"
-                    className="flex-1 rounded bg-slate-900 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
-                  >
-                    분석 보기
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleManualCollectStock(stock)}
-                    disabled={manualCollectingId !== null}
-                    className={`rounded px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      hasMissingMetrics
-                        ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
-                        : "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
-                    }`}
-                  >
-                    {manualCollectingId === stock.id
-                      ? "요청 중..."
-                      : hasMissingMetrics
-                        ? "누락 수동수집"
-                        : "수동수집"}
-                  </button>
-                  <button
-                    onClick={() => handleRemoveStock(stock.id, stock.name)}
-                    className="rounded bg-red-100 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-200 dark:bg-red-900 dark:text-red-400 dark:hover:bg-red-800"
-                  >
-                    삭제
-                  </button>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                  <span>
-                    추가: {new Date(stock.added_at).toLocaleDateString("ko-KR")}
-                  </span>
-                  {stock.collected_at && (
-                    <span>
-                      집계: {formatDateTime(stock.collected_at)}
-                      {isCollectedWithin24Hours(stock.collected_at) &&
-                        " (24시간 이내)"}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                          </>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <Link
+                            href="/analysis"
+                            className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
+                          >
+                            분석
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleManualCollectStock(stock)}
+                            disabled={manualCollectingId !== null}
+                            className={`rounded px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              hasMissingMetrics
+                                ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
+                                : "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
+                            }`}
+                          >
+                            {manualCollectingId === stock.id
+                              ? "요청 중"
+                              : hasMissingMetrics
+                                ? "누락수집"
+                                : "수동수집"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStock(stock.id, stock.name)}
+                            className="rounded bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-200 dark:bg-red-900 dark:text-red-400 dark:hover:bg-red-800"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );

@@ -139,6 +139,63 @@ def load_metric_targets(
   return result["rows"]
 
 
+def load_teacher_targets(market: str, limit: int | None) -> list[dict[str, Any]]:
+  args: list[Any] = []
+  filters = ["tw.active = 1", "tw.country IN ('KR', 'US')"]
+  if market != "ALL":
+    filters.append("tw.country = ?")
+    args.append(market)
+
+  limit_sql = ""
+  if limit:
+    limit_sql = "LIMIT ?"
+    args.append(limit)
+
+  result = execute(
+    f"""WITH latest AS (
+          SELECT code, country, MAX(snapshot_date) AS snapshot_date
+          FROM metrics_history
+          GROUP BY code, country
+        )
+        SELECT
+          tw.code,
+          tw.country,
+          COALESCE(c.name, tw.display_name) AS name,
+          COALESCE(c.market, tw.market) AS market,
+          COALESCE(c.currency, tw.currency) AS currency,
+          m.snapshot_date AS source_snapshot_date,
+          m.close_price,
+          m.previous_close,
+          m.change_rate,
+          m.market_cap,
+          m.shares_outstanding,
+          m.equity,
+          m.net_income,
+          m.operating_income,
+          m.total_liabilities,
+          m.debt_ratio,
+          m.foreign_ratio,
+          m.institution_ratio,
+          m.report_code,
+          m.bsns_year,
+          m.source
+        FROM teacher_watchlist tw
+        LEFT JOIN companies c
+          ON tw.code = c.code AND tw.country = c.country
+        LEFT JOIN latest l
+          ON tw.code = l.code AND tw.country = l.country
+        LEFT JOIN metrics_history m
+          ON m.code = l.code
+         AND m.country = l.country
+         AND m.snapshot_date = l.snapshot_date
+        WHERE {" AND ".join(filters)}
+        ORDER BY tw.sort_order
+        {limit_sql}""",
+    args,
+  )
+  return result["rows"]
+
+
 def implied_shares(row: dict[str, Any]) -> float | None:
   market_cap = to_number(row.get("market_cap"))
   close_price = to_number(row.get("close_price"))
@@ -209,8 +266,6 @@ def build_metric_row(row: dict[str, Any]) -> tuple[Any, ...]:
   )
   if price is None:
     raise RuntimeError("latest price is missing")
-  if market_cap is None:
-    raise RuntimeError("market cap cannot be calculated without shares")
 
   equity = to_number(row.get("equity"))
   net_income = to_number(row.get("net_income"))
@@ -307,9 +362,9 @@ def main() -> None:
   parser.add_argument("--market", choices=["KR", "US", "ALL"], default="ALL")
   parser.add_argument(
     "--scope",
-    choices=["watchlist", "metrics"],
+    choices=["watchlist", "metrics", "teacher"],
     default="watchlist",
-    help="watchlist refreshes only user watchlists; metrics refreshes latest metrics rows",
+    help="watchlist refreshes user watchlists; metrics refreshes latest metrics rows; teacher refreshes teacher_watchlist",
   )
   parser.add_argument(
     "--missing-change-only",
@@ -321,15 +376,18 @@ def main() -> None:
   parser.add_argument("--run-id")
   args = parser.parse_args()
 
-  targets = (
-    load_metric_targets(args.market, args.limit, args.missing_change_only)
-    if args.scope == "metrics"
-    else load_watchlist_targets(args.market, args.limit)
-  )
+  if args.scope == "metrics":
+    targets = load_metric_targets(args.market, args.limit, args.missing_change_only)
+  elif args.scope == "teacher":
+    targets = load_teacher_targets(args.market, args.limit)
+  else:
+    targets = load_watchlist_targets(args.market, args.limit)
   run_id = args.run_id or str(uuid.uuid4())
   job_name = (
     "update_metric_prices"
     if args.scope == "metrics"
+    else "update_teacher_watchlist_prices"
+    if args.scope == "teacher"
     else "update_watchlist_prices"
   )
 

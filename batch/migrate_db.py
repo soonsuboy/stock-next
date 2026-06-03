@@ -24,6 +24,8 @@ DEFAULT_BATCH_SETTINGS = {
   "watchlist_skip_recent_hours": "24",
   "watchlist_price_enabled": "true",
   "watchlist_price_time_kst": "06:30",
+  "teacher_watchlist_price_enabled": "true",
+  "teacher_watchlist_price_time_kst": "06:45",
   "telegram_enabled": "false",
   "telegram_collect_hours_back": "2",
   "telegram_message_limit": "200",
@@ -43,12 +45,47 @@ DEFAULT_BATCH_SETTINGS = {
   "last_watchlist_price_run_completed_at": "",
   "last_watchlist_price_run_status": "",
   "last_watchlist_price_check_reason": "",
+  "last_teacher_watchlist_price_run_date_kst": "",
+  "last_teacher_watchlist_price_run_started_at": "",
+  "last_teacher_watchlist_price_run_completed_at": "",
+  "last_teacher_watchlist_price_run_status": "",
+  "last_teacher_watchlist_price_check_reason": "",
   "last_metric_price_run_date_kst": "",
   "last_metric_price_run_started_at": "",
   "last_metric_price_run_completed_at": "",
   "last_metric_price_run_status": "",
   "last_metric_price_check_reason": "",
 }
+
+TEACHER_WATCHLIST_SEEDS = [
+  ("NVDA", "US", "엔비디아", "NVIDIA Corporation", "NASDAQ", "USD", "정보기술", "Semiconductors", None),
+  ("005930", "KR", "삼성전자", "삼성전자", "KRX", "KRW", "정보기술", "반도체와반도체장비", None),
+  ("000660", "KR", "SK하이닉스", "SK하이닉스", "KRX", "KRW", "정보기술", "반도체와반도체장비", None),
+  ("TSM", "US", "TSMC", "Taiwan Semiconductor Manufacturing Company Limited", "NYSE", "USD", "정보기술", "Semiconductors", None),
+  ("AVGO", "US", "브로드컴", "Broadcom Inc.", "NASDAQ", "USD", "정보기술", "Semiconductors", None),
+  ("WDC", "US", "샌디스크 (WDC)", "Western Digital Corporation", "NASDAQ", "USD", "정보기술", "Technology Hardware, Storage & Peripherals", "요청명은 샌디스크이나 현재 상장 티커는 WDC 기준으로 추적"),
+  ("009150", "KR", "삼성전기", "삼성전기", "KRX", "KRW", "정보기술", "전자장비와기기", None),
+  ("MRVL", "US", "마벨테크놀로지", "Marvell Technology, Inc.", "NASDAQ", "USD", "정보기술", "Semiconductors", None),
+  ("GOOGL", "US", "알파벳", "Alphabet Inc. Class A", "NASDAQ", "USD", "커뮤니케이션", "Interactive Media & Services", None),
+  ("MSFT", "US", "마이크로소프트", "Microsoft Corporation", "NASDAQ", "USD", "정보기술", "Software", None),
+  ("META", "US", "메타", "Meta Platforms, Inc.", "NASDAQ", "USD", "커뮤니케이션", "Interactive Media & Services", None),
+  ("AMZN", "US", "아마존", "Amazon.com, Inc.", "NASDAQ", "USD", "경기소비재", "Broadline Retail", None),
+  ("PLTR", "US", "팔란티어", "Palantir Technologies Inc.", "NASDAQ", "USD", "정보기술", "Software", None),
+  ("005380", "KR", "현대차", "현대차", "KRX", "KRW", "경기소비재", "자동차", None),
+  ("012330", "KR", "현대모비스", "현대모비스", "KRX", "KRW", "경기소비재", "자동차부품", None),
+  ("TSLA", "US", "테슬라", "Tesla, Inc.", "NASDAQ", "USD", "경기소비재", "Automobiles", None),
+  ("LEU", "US", "센트러스 에너지", "Centrus Energy Corp.", "NYSE", "USD", "에너지", "Uranium & Nuclear Fuel", None),
+  ("ETN", "US", "이튼", "Eaton Corporation plc", "NYSE", "USD", "산업재", "Electrical Components & Equipment", None),
+  ("GEV", "US", "GE버노바", "GE Vernova Inc.", "NYSE", "USD", "산업재", "Electrical Equipment", None),
+  ("012450", "KR", "한화에어로스페이스", "한화에어로스페이스", "KRX", "KRW", "산업재", "우주항공과국방", None),
+  ("079550", "KR", "LIG넥스원", "LIG넥스원", "KRX", "KRW", "산업재", "우주항공과국방", None),
+  ("SPACEX", "PRIVATE", "스페이스X", "SpaceX", "비상장", "USD", "산업재", "Aerospace", "비상장 기업이라 일일 주식 가격 배치에서 제외"),
+  ("003230", "KR", "삼양식품", "삼양식품", "KRX", "KRW", "필수소비재", "식품", None),
+  ("AAPL", "US", "애플", "Apple Inc.", "NASDAQ", "USD", "정보기술", "Technology Hardware, Storage & Peripherals", None),
+  ("032830", "KR", "삼성생명", "삼성생명", "KRX", "KRW", "금융", "생명보험", None),
+  ("016360", "KR", "삼성증권", "삼성증권", "KRX", "KRW", "금융", "증권", None),
+  ("017670", "KR", "SK텔레콤", "SK텔레콤", "KRX", "KRW", "커뮤니케이션", "무선통신서비스", None),
+]
 
 
 def table_sql(name: str) -> str:
@@ -215,6 +252,84 @@ def create_batch_settings() -> None:
     )
 
 
+def create_teacher_watchlist() -> None:
+  execute(
+    """CREATE TABLE IF NOT EXISTS teacher_watchlist (
+         id           INTEGER PRIMARY KEY AUTOINCREMENT,
+         code         TEXT NOT NULL,
+         country      TEXT NOT NULL CHECK(country IN ('KR', 'US', 'PRIVATE')),
+         display_name TEXT NOT NULL,
+         market       TEXT,
+         currency     TEXT,
+         gics_sector  TEXT,
+         note         TEXT,
+         sort_order   INTEGER NOT NULL,
+         active       INTEGER NOT NULL DEFAULT 1,
+         added_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+         updated_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+         UNIQUE(code, country)
+       )"""
+  )
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_teacher_watchlist_active_order ON teacher_watchlist(active, sort_order)"
+  )
+
+  for (
+    code,
+    country,
+    _display_name,
+    company_name,
+    market,
+    currency,
+    gics_sector,
+    industry_name,
+    _note,
+  ) in TEACHER_WATCHLIST_SEEDS:
+    if country not in ["KR", "US"]:
+      continue
+    execute(
+      """INSERT INTO companies
+         (code, country, name, market, currency, gics_sector,
+          industry_name, sector_source, source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'teacher_watchlist_seed',
+                 'teacher_watchlist_seed', CURRENT_TIMESTAMP)
+         ON CONFLICT(code, country) DO UPDATE SET
+           gics_sector = COALESCE(NULLIF(companies.gics_sector, ''), excluded.gics_sector),
+           industry_name = COALESCE(NULLIF(companies.industry_name, ''), excluded.industry_name),
+           sector_source = COALESCE(NULLIF(companies.sector_source, ''), excluded.sector_source),
+           updated_at = CURRENT_TIMESTAMP""",
+      [code, country, company_name, market, currency, gics_sector, industry_name],
+    )
+
+  for sort_order, (
+    code,
+    country,
+    display_name,
+    _company_name,
+    market,
+    currency,
+    gics_sector,
+    _industry_name,
+    note,
+  ) in enumerate(TEACHER_WATCHLIST_SEEDS, start=1):
+    execute(
+      """INSERT INTO teacher_watchlist
+         (code, country, display_name, market, currency, gics_sector,
+          note, sort_order, active, added_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT(code, country) DO UPDATE SET
+           display_name = excluded.display_name,
+           market = excluded.market,
+           currency = excluded.currency,
+           gics_sector = excluded.gics_sector,
+           note = excluded.note,
+           sort_order = excluded.sort_order,
+           active = 1,
+           updated_at = CURRENT_TIMESTAMP""",
+      [code, country, display_name, market, currency, gics_sector, note, sort_order],
+    )
+
+
 def backfill_company_sectors() -> None:
   result = execute(
     """SELECT code, country, name, market, industry_name
@@ -284,6 +399,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   backfill_company_sectors()
   create_metrics_history()
   create_batch_settings()
+  create_teacher_watchlist()
   execute(
     """CREATE TABLE IF NOT EXISTS corp_codes (
          stock_code TEXT PRIMARY KEY,

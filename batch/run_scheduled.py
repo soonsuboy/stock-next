@@ -26,6 +26,8 @@ DEFAULTS = {
   "metric_price_limit": "0",
   "watchlist_price_enabled": "true",
   "watchlist_price_time_kst": "06:30",
+  "teacher_watchlist_price_enabled": "true",
+  "teacher_watchlist_price_time_kst": "06:45",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
@@ -37,6 +39,11 @@ DEFAULTS = {
   "last_watchlist_price_run_completed_at": "",
   "last_watchlist_price_run_status": "",
   "last_watchlist_price_check_reason": "",
+  "last_teacher_watchlist_price_run_date_kst": "",
+  "last_teacher_watchlist_price_run_started_at": "",
+  "last_teacher_watchlist_price_run_completed_at": "",
+  "last_teacher_watchlist_price_run_status": "",
+  "last_teacher_watchlist_price_check_reason": "",
   "last_metric_price_run_date_kst": "",
   "last_metric_price_run_started_at": "",
   "last_metric_price_run_completed_at": "",
@@ -175,6 +182,33 @@ def should_run_metric_price_now(
 
   return True, (
     f"metric price due target={target.strftime('%H:%M')} "
+    f"delay={int(delta_minutes)}m"
+  )
+
+
+def should_run_teacher_watchlist_price_now(
+  settings: dict[str, str], now_kst: datetime
+) -> tuple[bool, str]:
+  if not bool_setting(settings, "teacher_watchlist_price_enabled"):
+    return False, "teacher watchlist price schedule disabled"
+
+  time_text = settings.get("teacher_watchlist_price_time_kst", "06:45")
+  try:
+    hour, minute = [int(part) for part in time_text.split(":", 1)]
+    target = datetime.combine(now_kst.date(), datetime_time(hour, minute), KST)
+  except ValueError:
+    target = datetime.combine(now_kst.date(), datetime_time(6, 45), KST)
+
+  delta_minutes = (now_kst - target).total_seconds() / 60
+  if delta_minutes < 0:
+    return False, f"before teacher watchlist price target={target.strftime('%H:%M')}"
+
+  today = now_kst.date().isoformat()
+  if settings.get("last_teacher_watchlist_price_run_date_kst") == today:
+    return False, f"teacher watchlist prices already ran for {today}"
+
+  return True, (
+    f"teacher watchlist price due target={target.strftime('%H:%M')} "
     f"delay={int(delta_minutes)}m"
   )
 
@@ -349,6 +383,53 @@ def run_metric_price_schedule(settings: dict[str, str], now_kst: datetime) -> No
     save_setting("last_metric_price_run_status", "failed")
 
 
+def run_teacher_watchlist_price_schedule(
+  settings: dict[str, str],
+  now_kst: datetime,
+) -> None:
+  should_run, reason = should_run_teacher_watchlist_price_now(settings, now_kst)
+  print(f"teacher watchlist price reason={reason}")
+  save_setting("last_teacher_watchlist_price_check_reason", reason)
+  if not should_run:
+    return
+
+  run_id = f"teacher-watchlist-price-{now_kst.strftime('%Y%m%d')}"
+  save_setting(
+    "last_teacher_watchlist_price_run_started_at",
+    now_kst.isoformat(timespec="seconds"),
+  )
+  save_setting("last_teacher_watchlist_price_run_status", "running")
+  try:
+    run_command(
+      [
+        sys.executable,
+        "batch/update_watchlist_prices.py",
+        "--scope",
+        "teacher",
+        "--market",
+        "ALL",
+        "--run-id",
+        run_id,
+      ]
+    )
+    save_setting(
+      "last_teacher_watchlist_price_run_date_kst",
+      now_kst.date().isoformat(),
+    )
+    save_setting(
+      "last_teacher_watchlist_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_teacher_watchlist_price_run_status", "success")
+  except Exception as error:
+    print(f"[teacher watchlist price schedule failed] {error}", flush=True)
+    save_setting(
+      "last_teacher_watchlist_price_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_teacher_watchlist_price_run_status", "failed")
+
+
 def main() -> None:
   settings = load_settings()
   now_kst = datetime.now(KST)
@@ -357,6 +438,7 @@ def main() -> None:
   save_setting("last_scheduler_check_at", now_kst.isoformat(timespec="seconds"))
   save_setting("last_scheduler_check_reason", reason)
   run_watchlist_price_schedule(settings, now_kst)
+  run_teacher_watchlist_price_schedule(settings, now_kst)
   run_metric_price_schedule(settings, now_kst)
 
   if not should_run:

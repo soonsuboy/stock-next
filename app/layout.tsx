@@ -49,7 +49,7 @@ export default async function RootLayout({
             <Link href="/" className="text-xl font-bold text-slate-900 dark:text-white">
               📈 Stock Analysis
             </Link>
-            <div className="flex items-center gap-6 text-sm font-medium">
+            <div className="flex flex-wrap items-center justify-end gap-4 text-sm font-medium lg:gap-6">
               <Link href="/" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 홈
               </Link>
@@ -59,6 +59,11 @@ export default async function RootLayout({
               <Link href="/watchlist" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 관심 종목
               </Link>
+              {session?.user?.id && (
+                <Link href="/teacher-watchlist" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  담쌤관심종목
+                </Link>
+              )}
               <Link href="/analysis" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                 분석
               </Link>

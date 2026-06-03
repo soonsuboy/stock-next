@@ -73,6 +73,7 @@
 | 55 | KIS 로컬 테스트와 토큰 캐시 | 한투 API 키 로컬 로드를 확인하고 삼성전자/AAPL 단건 시세가 KIS로 조회되는 것을 검증했으며, 반복 토큰 발급 403을 막기 위해 파일 기반 토큰 캐시를 추가했다. | 증권사 API 특성상 토큰 발급 제한을 고려해 배치 안정성을 보강했다. | 약 15분 |
 | 56 | 관리자 가격 전용 수동배치 | 관리자 수동배치 탭에 DB 적재기업 가격만 갱신하는 버튼과 전용 API를 추가하고, GitHub Actions `metric_prices` 모드에 가격 시장 입력을 연결했다. | 재무제표 재수집 없이 KIS 우선 가격 배치만 수동 실행해 최신 가격·전일종가·등락률·시총을 빠르게 갱신할 수 있게 했다. | 약 15분 |
 | 57 | 관심종목 엑셀형 그리드 전환 | 관심종목 카드를 가로 스크롤 테이블로 바꾸고 ROE, PBR, PER, 주식가격, 시가총액 정렬 버튼을 추가했다. | 관심종목이 많아져도 핵심 재무·가격 지표를 표 형태로 빠르게 비교하고 원하는 기준으로 정렬할 수 있게 했다. | 약 10분 |
+| 58 | 담쌤관심종목과 전용 가격 배치 | 사용자가 보낸 27개 종목 묶음을 `teacher_watchlist`로 seed하고, `담쌤관심종목` 메뉴와 전용 그리드/API/일일 가격 배치를 추가했다. | 개인 관심종목과 별개로 특정 투자 리스트를 독립 메뉴에서 추적하고 매일 최신 가격·전일가격·등락률을 갱신할 수 있게 했다. | 약 40분 |
 
 ## 4. 현재 시스템 구조
 
@@ -80,10 +81,10 @@
 |---|---|
 | 프론트엔드 | Next.js 16 App Router, React 19, Tailwind CSS |
 | 인증 | Auth.js / Google OAuth |
-| DB | Turso, 주요 테이블: `app_users`, `companies`, `user_watchlist`, `metrics_history`, `batch_runs`, `telegram_*` |
+| DB | Turso, 주요 테이블: `app_users`, `companies`, `user_watchlist`, `teacher_watchlist`, `metrics_history`, `batch_runs`, `telegram_*` |
 | 재무 수집 | 한국: DART/Daum, 미국: SEC companyfacts/Stooq/Yahoo fallback |
 | 배치 실행 | GitHub Actions schedule + workflow_dispatch |
-| 가격 갱신 | 관심종목 대상 매일 아침 가격 배치, 전일 종가와 전일대비 등락률 계산 |
+| 가격 갱신 | 관심종목, 담쌤관심종목, 전체 집계기업 대상 가격 배치, 전일 종가와 전일대비 등락률 계산 |
 | 관리자 기능 | 배치 현황, 수동 배치, DB 기반 설정, 텔레그램 설정, 접근 코드 관리 |
 | 분석 기능 | PER/PBR/ROE 및 시가총액·자본총계·당기순이익 삼각형 다이어그램 |
 | 커뮤니티 기능 | 텔레그램 대화 수집, 이미지 조회, AI 요약, 긍정/부정 종목 분류 |

@@ -23,6 +23,8 @@ export interface BatchSettings {
   watchlistSkipRecentHours: number;
   watchlistPriceEnabled: boolean;
   watchlistPriceTimeKst: string;
+  teacherWatchlistPriceEnabled: boolean;
+  teacherWatchlistPriceTimeKst: string;
   telegramEnabled: boolean;
   telegramCollectHoursBack: number;
   telegramMessageLimit: number;
@@ -43,6 +45,11 @@ export interface BatchSchedulerMeta {
   lastWatchlistPriceRunCompletedAt: string;
   lastWatchlistPriceRunStatus: string;
   lastWatchlistPriceCheckReason: string;
+  lastTeacherWatchlistPriceRunDateKst: string;
+  lastTeacherWatchlistPriceRunStartedAt: string;
+  lastTeacherWatchlistPriceRunCompletedAt: string;
+  lastTeacherWatchlistPriceRunStatus: string;
+  lastTeacherWatchlistPriceCheckReason: string;
   lastMetricPriceRunDateKst: string;
   lastMetricPriceRunStartedAt: string;
   lastMetricPriceRunCompletedAt: string;
@@ -70,6 +77,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   watchlist_skip_recent_hours: "24",
   watchlist_price_enabled: "true",
   watchlist_price_time_kst: "06:30",
+  teacher_watchlist_price_enabled: "true",
+  teacher_watchlist_price_time_kst: "06:45",
   telegram_enabled: "false",
   telegram_collect_hours_back: "2",
   telegram_message_limit: "200",
@@ -89,6 +98,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_watchlist_price_run_completed_at: "",
   last_watchlist_price_run_status: "",
   last_watchlist_price_check_reason: "",
+  last_teacher_watchlist_price_run_date_kst: "",
+  last_teacher_watchlist_price_run_started_at: "",
+  last_teacher_watchlist_price_run_completed_at: "",
+  last_teacher_watchlist_price_run_status: "",
+  last_teacher_watchlist_price_check_reason: "",
   last_metric_price_run_date_kst: "",
   last_metric_price_run_started_at: "",
   last_metric_price_run_completed_at: "",
@@ -150,6 +164,10 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
     watchlist_skip_recent_hours: String(settings.watchlistSkipRecentHours),
     watchlist_price_enabled: String(settings.watchlistPriceEnabled),
     watchlist_price_time_kst: settings.watchlistPriceTimeKst,
+    teacher_watchlist_price_enabled: String(
+      settings.teacherWatchlistPriceEnabled
+    ),
+    teacher_watchlist_price_time_kst: settings.teacherWatchlistPriceTimeKst,
     telegram_enabled: String(settings.telegramEnabled),
     telegram_collect_hours_back: String(settings.telegramCollectHoursBack),
     telegram_message_limit: String(settings.telegramMessageLimit),
@@ -190,6 +208,14 @@ function parseSettings(values: Record<string, string>): BatchSettings {
     ),
     watchlistPriceEnabled: parseBoolean(values.watchlist_price_enabled, true),
     watchlistPriceTimeKst: parseTime(values.watchlist_price_time_kst, "06:30"),
+    teacherWatchlistPriceEnabled: parseBoolean(
+      values.teacher_watchlist_price_enabled,
+      true
+    ),
+    teacherWatchlistPriceTimeKst: parseTime(
+      values.teacher_watchlist_price_time_kst,
+      "06:45"
+    ),
     telegramEnabled: parseBoolean(values.telegram_enabled, false),
     telegramCollectHoursBack: parseInteger(
       values.telegram_collect_hours_back,
@@ -260,6 +286,11 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
        'last_watchlist_price_run_completed_at',
        'last_watchlist_price_run_status',
        'last_watchlist_price_check_reason',
+       'last_teacher_watchlist_price_run_date_kst',
+       'last_teacher_watchlist_price_run_started_at',
+       'last_teacher_watchlist_price_run_completed_at',
+       'last_teacher_watchlist_price_run_status',
+       'last_teacher_watchlist_price_check_reason',
        'last_metric_price_run_date_kst',
        'last_metric_price_run_started_at',
        'last_metric_price_run_completed_at',
@@ -288,6 +319,16 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
       values.last_watchlist_price_run_completed_at,
     lastWatchlistPriceRunStatus: values.last_watchlist_price_run_status,
     lastWatchlistPriceCheckReason: values.last_watchlist_price_check_reason,
+    lastTeacherWatchlistPriceRunDateKst:
+      values.last_teacher_watchlist_price_run_date_kst,
+    lastTeacherWatchlistPriceRunStartedAt:
+      values.last_teacher_watchlist_price_run_started_at,
+    lastTeacherWatchlistPriceRunCompletedAt:
+      values.last_teacher_watchlist_price_run_completed_at,
+    lastTeacherWatchlistPriceRunStatus:
+      values.last_teacher_watchlist_price_run_status,
+    lastTeacherWatchlistPriceCheckReason:
+      values.last_teacher_watchlist_price_check_reason,
     lastMetricPriceRunDateKst: values.last_metric_price_run_date_kst,
     lastMetricPriceRunStartedAt: values.last_metric_price_run_started_at,
     lastMetricPriceRunCompletedAt:
@@ -323,6 +364,12 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     watchlist_skip_recent_hours: String(source.watchlistSkipRecentHours ?? "24"),
     watchlist_price_enabled: String(source.watchlistPriceEnabled ?? "true"),
     watchlist_price_time_kst: String(source.watchlistPriceTimeKst ?? "06:30"),
+    teacher_watchlist_price_enabled: String(
+      source.teacherWatchlistPriceEnabled ?? "true"
+    ),
+    teacher_watchlist_price_time_kst: String(
+      source.teacherWatchlistPriceTimeKst ?? "06:45"
+    ),
     telegram_enabled: String(source.telegramEnabled ?? "false"),
     telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "2"),
     telegram_message_limit: String(source.telegramMessageLimit ?? "200"),

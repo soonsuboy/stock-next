@@ -17,6 +17,7 @@ from db import execute, execute_many
 KST = ZoneInfo("Asia/Seoul")
 UA = "Mozilla/5.0 (compatible; soonsuboy-stock-next/1.0)"
 KRW_UNIT_EOK = 100_000_000
+KRW_UNIT_MILLION = 1_000_000
 FALLBACK_DEPOSIT_KRW = 130_000_000_000_000
 FALLBACK_CREDIT_KRW = 38_000_000_000_000
 ECOS_BASE_URL = "https://ecos.bok.or.kr/api"
@@ -96,6 +97,22 @@ def percent_display(value: float | None) -> str:
     return "-"
   sign = "+" if value > 0 else ""
   return f"{sign}{value:.2f}%"
+
+
+def net_buy_display(value: float | None) -> str:
+  if value is None:
+    return "-"
+  direction = "순매수" if value >= 0 else "순매도"
+  return f"{krw_display(value)} {direction}"
+
+
+def net_buy_change_display(value: float | None) -> str:
+  if value is None:
+    return "-"
+  if value == 0:
+    return "변동 없음"
+  direction = "매수 방향" if value > 0 else "매도 방향"
+  return f"{krw_display(value)} {direction}"
 
 
 def score_display(value: float | None, classification: str | None = None) -> str:
@@ -369,6 +386,129 @@ def fetch_kospi_foreign_net_buy() -> dict[str, Any]:
   raise RuntimeError("KOSPI foreign investor row not found")
 
 
+def fetch_investor_deal_rows(sosok: str, market_label: str) -> list[dict[str, Any]]:
+  bizdate = datetime.now(KST).strftime("%Y%m%d")
+  html = request_text(
+    f"https://finance.naver.com/sise/investorDealTrendDay.naver?bizdate={bizdate}&sosok={sosok}&page=1",
+    "euc-kr",
+  )
+  soup = BeautifulSoup(html, "html.parser")
+  rows: list[dict[str, Any]] = []
+  for tr in soup.select("tr"):
+    cells = [cell.get_text(" ", strip=True) for cell in tr.select("td")]
+    if len(cells) < 3 or not cells[0] or "." not in cells[0]:
+      continue
+    foreign_eok = parse_number(cells[2])
+    if foreign_eok is None:
+      continue
+    rows.append(
+      {
+        "market": market_label,
+        "snapshot_date": parse_yy_mm_dd(cells[0]),
+        "foreign_krw": foreign_eok * KRW_UNIT_EOK,
+      }
+    )
+    if len(rows) >= 2:
+      break
+  if len(rows) < 2:
+    raise RuntimeError(f"{market_label} foreign investor rows not found")
+  return rows
+
+
+def fetch_market_trade_value(market_code: str, market_label: str) -> float:
+  html = request_text(
+    f"https://finance.naver.com/sise/sise_index.naver?code={market_code}",
+    "euc-kr",
+  )
+  soup = BeautifulSoup(html, "html.parser")
+  for th in soup.select("th"):
+    if "거래대금" not in th.get_text(" ", strip=True):
+      continue
+    td = th.find_next_sibling("td")
+    value_million = parse_number(td.get_text(" ", strip=True) if td else None)
+    if value_million is not None:
+      return value_million * KRW_UNIT_MILLION
+  raise RuntimeError(f"{market_label} trade value not found")
+
+
+def fetch_kr_market_foreign_flow() -> list[dict[str, Any]]:
+  markets = [
+    {"code": "KOSPI", "sosok": "01", "label": "코스피"},
+    {"code": "KOSDAQ", "sosok": "02", "label": "코스닥"},
+  ]
+  latest_net = 0.0
+  previous_net = 0.0
+  total_trade_value = 0.0
+  latest_dates: list[str] = []
+  previous_dates: list[str] = []
+  parts: list[str] = []
+
+  for market in markets:
+    rows = fetch_investor_deal_rows(market["sosok"], market["label"])
+    trade_value = fetch_market_trade_value(market["code"], market["label"])
+    latest_net += rows[0]["foreign_krw"]
+    previous_net += rows[1]["foreign_krw"]
+    total_trade_value += trade_value
+    latest_dates.append(str(rows[0]["snapshot_date"]))
+    previous_dates.append(str(rows[1]["snapshot_date"]))
+    parts.append(
+      f"{market['label']} {net_buy_display(rows[0]['foreign_krw'])}, 거래대금 {krw_display(trade_value)}"
+    )
+
+  snapshot_date = max(latest_dates) if latest_dates else today_text()
+  previous_date = max(previous_dates) if previous_dates else ""
+  ratio = latest_net / total_trade_value * 100 if total_trade_value else None
+  change = latest_net - previous_net
+  status = "net_buy" if latest_net >= 0 else "net_sell"
+  change_status = "net_buy" if change >= 0 else "net_sell"
+  direction = "순매수" if latest_net >= 0 else "순매도"
+  note = (
+    "국내시장 전체=코스피+코스닥. "
+    "비율=외국인 순매수액/코스피+코스닥 거래대금. "
+    f"전일 비교 기준일 {previous_date}. "
+    + " / ".join(parts)
+  )
+
+  return [
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "kr_market_foreign_net_buy",
+      "region": "KR",
+      "label": "국내시장 외국인 순매수",
+      "value": latest_net,
+      "unit": "KRW",
+      "display_value": net_buy_display(latest_net),
+      "source": "naver_finance",
+      "status": status,
+      "note": note,
+    },
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "kr_market_foreign_net_buy_ratio",
+      "region": "KR",
+      "label": "외국인 순매수 비율",
+      "value": ratio,
+      "unit": "PERCENT",
+      "display_value": "-" if ratio is None else f"{percent_display(ratio)} ({direction})",
+      "source": "derived",
+      "status": status,
+      "note": note,
+    },
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "kr_market_foreign_net_buy_change",
+      "region": "KR",
+      "label": "외국인 순매수 전일대비",
+      "value": change,
+      "unit": "KRW",
+      "display_value": net_buy_change_display(change),
+      "source": "derived",
+      "status": change_status,
+      "note": note,
+    },
+  ]
+
+
 def fetch_deposit_and_credit() -> tuple[dict[str, Any], dict[str, Any]]:
   html = request_text("https://finance.naver.com/sise/sise_deposit.naver", "euc-kr")
   soup = BeautifulSoup(html, "html.parser")
@@ -496,7 +636,7 @@ def build_korea_fear_greed(
     "source": "derived",
     "status": "ok",
     "note": (
-      "앱 자체 산출: 신용융자/예탁금 비율 60%, 코스피 외국인 순매수 40%"
+      "앱 자체 산출: 신용융자/예탁금 비율 60%, 국내시장 외국인 순매수 40%"
     ),
   }
 
@@ -604,8 +744,25 @@ def collect() -> list[dict[str, Any]]:
 
   foreign: dict[str, Any] | None = None
   try:
-    foreign = fetch_kospi_foreign_net_buy()
-    indicators.append(foreign)
+    kr_market_foreign = fetch_kr_market_foreign_flow()
+    indicators.extend(kr_market_foreign)
+    foreign = kr_market_foreign[0]
+  except Exception as error:
+    indicators.extend(
+      [
+        error_indicator("kr_market_foreign_net_buy", "KR", "국내시장 외국인 순매수", error),
+        error_indicator("kr_market_foreign_net_buy_ratio", "KR", "외국인 순매수 비율", error),
+        error_indicator(
+          "kr_market_foreign_net_buy_change",
+          "KR",
+          "외국인 순매수 전일대비",
+          error,
+        ),
+      ]
+    )
+
+  try:
+    indicators.append(fetch_kospi_foreign_net_buy())
   except Exception as error:
     indicators.append(
       error_indicator("kospi_foreign_net_buy", "KR", "코스피 외국인 순매수", error)

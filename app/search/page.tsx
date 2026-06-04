@@ -171,13 +171,15 @@ function MacroStatusBadge({ indicator }: { indicator: MacroIndicator }) {
   const isOverheated = indicator.status === "overheated";
   const isSurge = indicator.status === "surge";
   const isDown = indicator.status === "down";
+  const isNetBuy = indicator.status === "net_buy";
+  const isNetSell = indicator.status === "net_sell";
   const tone = isError
     ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
     : isFallback
       ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200"
-      : isOverheated || isSurge
+      : isOverheated || isSurge || isNetBuy
         ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
-        : isDown
+        : isDown || isNetSell
           ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200"
         : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200";
   const label = isError
@@ -190,6 +192,10 @@ function MacroStatusBadge({ indicator }: { indicator: MacroIndicator }) {
           ? "폭증"
           : isDown
             ? "감소"
+            : isNetBuy
+              ? "순매수"
+              : isNetSell
+                ? "순매도"
         : "정상";
 
   return (
@@ -234,7 +240,9 @@ function MacroIndicatorPanel({
   const marketKeys = [
     "usd_krw",
     "seoul_fx_usd_volume",
-    "kospi_foreign_net_buy",
+    "kr_market_foreign_net_buy",
+    "kr_market_foreign_net_buy_ratio",
+    "kr_market_foreign_net_buy_change",
     "investor_deposit_total",
     "credit_loan_total",
     "credit_deposit_ratio",
@@ -266,9 +274,10 @@ function MacroIndicatorPanel({
     const isFear = indicator.unit === "SCORE";
     const valueTone =
       (isRatio && indicator.status === "overheated") ||
-      indicator.status === "surge"
+      indicator.status === "surge" ||
+      indicator.status === "net_buy"
         ? "text-red-700 dark:text-red-200"
-        : indicator.status === "down"
+        : indicator.status === "down" || indicator.status === "net_sell"
           ? "text-blue-700 dark:text-blue-200"
         : "text-slate-900 dark:text-white";
 
@@ -297,6 +306,10 @@ function MacroIndicatorPanel({
             ? "30% 이상이면 신용 과열구간으로 표시합니다."
             : isFxVolume
               ? "150억달러 이상이면 평시 거래량을 크게 상회한 것으로 표시합니다."
+            : indicator.key === "kr_market_foreign_net_buy_ratio"
+              ? "코스피+코스닥 거래대금 대비 외국인 순매수액 비율입니다."
+            : indicator.key === "kr_market_foreign_net_buy_change"
+              ? "전 거래일 대비 외국인 순매수액의 변화입니다."
             : indicator.source
               ? `출처: ${indicator.source}`
               : "출처 미확인"}
@@ -313,7 +326,7 @@ function MacroIndicatorPanel({
             오늘의 거시 지표
           </h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            환율, 서울외환시장 거래량, 외환보유액, 외국인 수급, 예탁금·신용융자, 공포탐욕지수를 매일 배치로 갱신합니다.
+            환율, 서울외환시장 거래량, 외환보유액, 국내시장 전체 외국인 수급, 예탁금·신용융자, 공포탐욕지수를 매일 배치로 갱신합니다.
           </p>
         </div>
         <div className="text-xs text-slate-500">

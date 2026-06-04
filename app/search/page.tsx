@@ -39,8 +39,29 @@ interface RankedPage {
   totalPages: number;
 }
 
+interface MacroIndicator {
+  key: string;
+  region: string;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  displayValue: string;
+  source: string | null;
+  status: string;
+  note: string | null;
+  snapshotDate: string;
+  createdAt: string | null;
+}
+
+interface MacroResponse {
+  indicators: MacroIndicator[];
+  updatedAt: string | null;
+}
+
 const PAGE_SIZE = 30;
 const RANKED_CACHE_TTL_MS = 5 * 60 * 1000;
+const MACRO_CACHE_KEY = "search:macro-indicators:v1";
+const MACRO_CACHE_TTL_MS = 30 * 60 * 1000;
 const WATCHLIST_CACHE_KEY = "watchlist:v1";
 const ANALYSIS_CACHE_KEY = "analysis:v2";
 
@@ -120,6 +141,199 @@ function ChangeRateBadge({ value }: { value: number | null | undefined }) {
   );
 }
 
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value.includes("T") ? value : value.replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function MacroStatusBadge({ indicator }: { indicator: MacroIndicator }) {
+  const isError = indicator.status === "error";
+  const isFallback = indicator.status === "fallback";
+  const isOverheated = indicator.status === "overheated";
+  const tone = isError
+    ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
+    : isFallback
+      ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      : isOverheated
+        ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
+        : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200";
+  const label = isError
+    ? "수집 실패"
+    : isFallback
+      ? "대체값"
+      : isOverheated
+        ? "과열"
+        : "정상";
+
+  return (
+    <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+function FearGreedBar({ value }: { value: number | null }) {
+  const score = value === null ? 0 : Math.max(0, Math.min(100, value));
+  const tone =
+    value === null
+      ? "bg-slate-300"
+      : score < 45
+        ? "bg-blue-500"
+        : score < 55
+          ? "bg-slate-500"
+          : score < 75
+            ? "bg-amber-500"
+            : "bg-red-500";
+
+  return (
+    <div className="mt-3 h-2 rounded bg-slate-200 dark:bg-slate-800">
+      <div className={`h-2 rounded ${tone}`} style={{ width: `${score}%` }} />
+    </div>
+  );
+}
+
+function MacroIndicatorPanel({
+  indicators,
+  loading,
+  error,
+  updatedAt,
+}: {
+  indicators: MacroIndicator[];
+  loading: boolean;
+  error: string;
+  updatedAt: string | null;
+}) {
+  const byKey = new Map(indicators.map((item) => [item.key, item]));
+  const moneyKeys = [
+    "usd_krw",
+    "kospi_foreign_net_buy",
+    "investor_deposit_total",
+    "credit_loan_total",
+    "credit_deposit_ratio",
+  ];
+  const fearKeys = ["fear_greed_kr", "fear_greed_us", "fear_greed_btc"];
+
+  const renderTile = (key: string) => {
+    const indicator = byKey.get(key);
+    if (!indicator) {
+      return (
+        <div
+          key={key}
+          className="border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
+        >
+          <div className="text-sm font-bold text-slate-900 dark:text-white">
+            {key}
+          </div>
+          <div className="mt-3 text-xl font-bold text-slate-400">-</div>
+          <div className="mt-2 text-xs text-slate-500">수집 전</div>
+        </div>
+      );
+    }
+
+    const isRatio = indicator.key === "credit_deposit_ratio";
+    const isFear = indicator.unit === "SCORE";
+    const valueTone =
+      isRatio && indicator.status === "overheated"
+        ? "text-red-700 dark:text-red-200"
+        : "text-slate-900 dark:text-white";
+
+    return (
+      <div
+        key={indicator.key}
+        className="border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-bold text-slate-900 dark:text-white">
+              {indicator.label}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              기준 {formatDate(indicator.snapshotDate)}
+            </div>
+          </div>
+          <MacroStatusBadge indicator={indicator} />
+        </div>
+        <div className={`mt-3 text-2xl font-bold ${valueTone}`}>
+          {indicator.displayValue}
+        </div>
+        {isFear && <FearGreedBar value={indicator.value} />}
+        <div className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          {isRatio
+            ? "30% 이상이면 신용 과열구간으로 표시합니다."
+            : indicator.source
+              ? `출처: ${indicator.source}`
+              : "출처 미확인"}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <section className="mb-8 border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            오늘의 거시 지표
+          </h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            환율, 외국인 수급, 예탁금·신용융자, 공포탐욕지수를 매일 배치로 갱신합니다.
+          </p>
+        </div>
+        <div className="text-xs text-slate-500">
+          업데이트 {formatDateTime(updatedAt)}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          {error}
+        </div>
+      )}
+
+      {loading && indicators.length === 0 ? (
+        <div className="py-6 text-center text-sm text-slate-600 dark:text-slate-300">
+          거시 지표를 불러오는 중...
+        </div>
+      ) : indicators.length === 0 ? (
+        <div className="py-6 text-center text-sm text-slate-600 dark:text-slate-300">
+          아직 수집된 거시 지표가 없습니다. 다음 배치 이후 표시됩니다.
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {moneyKeys.map(renderTile)}
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {fearKeys.map(renderTile)}
+          </div>
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            국내 공포탐욕지수는 공식 지수가 아니라 앱 자체 산출값입니다. 신용융자/예탁금 비율과 코스피 외국인 순매수를 함께 반영합니다.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Stock[]>([]);
@@ -140,6 +354,50 @@ export default function SearchPage() {
   );
   const [rankLoading, setRankLoading] = useState(true);
   const [rankError, setRankError] = useState("");
+  const [macroIndicators, setMacroIndicators] = useState<MacroIndicator[]>([]);
+  const [macroUpdatedAt, setMacroUpdatedAt] = useState<string | null>(null);
+  const [macroLoading, setMacroLoading] = useState(true);
+  const [macroError, setMacroError] = useState("");
+
+  const fetchMacroIndicators = async () => {
+    const cached = readClientCache<MacroResponse>(MACRO_CACHE_KEY);
+
+    if (cached) {
+      setMacroIndicators(cached.indicators || []);
+      setMacroUpdatedAt(cached.updatedAt || null);
+      setMacroLoading(false);
+    } else {
+      setMacroLoading(true);
+    }
+
+    setMacroError("");
+    try {
+      const response = await fetch("/api/macro-indicators");
+      const data = (await response.json()) as MacroResponse & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "거시 지표 조회 실패");
+      }
+
+      const next = {
+        indicators: data.indicators || [],
+        updatedAt: data.updatedAt || null,
+      };
+      writeClientCache(MACRO_CACHE_KEY, next, MACRO_CACHE_TTL_MS);
+      setMacroIndicators(next.indicators);
+      setMacroUpdatedAt(next.updatedAt);
+    } catch (err) {
+      if (!cached) {
+        setMacroError(
+          err instanceof Error ? err.message : "거시 지표 조회 중 오류 발생"
+        );
+      }
+    } finally {
+      setMacroLoading(false);
+    }
+  };
 
   const fetchRanked = async (
     sort: SortKey,
@@ -188,6 +446,12 @@ export default function SearchPage() {
       setRankLoading(false);
     }
   };
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchMacroIndicators();
+    });
+  }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -561,6 +825,13 @@ export default function SearchPage() {
       <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
         검색 결과는 배치가 DB에 적재한 기업 목록에서만 조회합니다.
       </p>
+
+      <MacroIndicatorPanel
+        indicators={macroIndicators}
+        loading={macroLoading}
+        error={macroError}
+        updatedAt={macroUpdatedAt}
+      />
 
       <form onSubmit={handleSearch} className="mb-8">
         <div className="flex gap-2">

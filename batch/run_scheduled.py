@@ -28,6 +28,8 @@ DEFAULTS = {
   "watchlist_price_time_kst": "06:30",
   "teacher_watchlist_price_enabled": "true",
   "teacher_watchlist_price_time_kst": "06:45",
+  "macro_indicator_enabled": "true",
+  "macro_indicator_time_kst": "08:00",
   "last_scheduled_run_date_kst": "",
   "last_scheduler_check_at": "",
   "last_scheduler_check_reason": "",
@@ -44,6 +46,11 @@ DEFAULTS = {
   "last_teacher_watchlist_price_run_completed_at": "",
   "last_teacher_watchlist_price_run_status": "",
   "last_teacher_watchlist_price_check_reason": "",
+  "last_macro_indicator_run_date_kst": "",
+  "last_macro_indicator_run_started_at": "",
+  "last_macro_indicator_run_completed_at": "",
+  "last_macro_indicator_run_status": "",
+  "last_macro_indicator_check_reason": "",
   "last_metric_price_run_date_kst": "",
   "last_metric_price_run_started_at": "",
   "last_metric_price_run_completed_at": "",
@@ -209,6 +216,33 @@ def should_run_teacher_watchlist_price_now(
 
   return True, (
     f"teacher watchlist price due target={target.strftime('%H:%M')} "
+    f"delay={int(delta_minutes)}m"
+  )
+
+
+def should_run_macro_indicator_now(
+  settings: dict[str, str], now_kst: datetime
+) -> tuple[bool, str]:
+  if not bool_setting(settings, "macro_indicator_enabled"):
+    return False, "macro indicator schedule disabled"
+
+  time_text = settings.get("macro_indicator_time_kst", "08:00")
+  try:
+    hour, minute = [int(part) for part in time_text.split(":", 1)]
+    target = datetime.combine(now_kst.date(), datetime_time(hour, minute), KST)
+  except ValueError:
+    target = datetime.combine(now_kst.date(), datetime_time(8, 0), KST)
+
+  delta_minutes = (now_kst - target).total_seconds() / 60
+  if delta_minutes < 0:
+    return False, f"before macro indicator target={target.strftime('%H:%M')}"
+
+  today = now_kst.date().isoformat()
+  if settings.get("last_macro_indicator_run_date_kst") == today:
+    return False, f"macro indicators already ran for {today}"
+
+  return True, (
+    f"macro indicator due target={target.strftime('%H:%M')} "
     f"delay={int(delta_minutes)}m"
   )
 
@@ -430,6 +464,35 @@ def run_teacher_watchlist_price_schedule(
     save_setting("last_teacher_watchlist_price_run_status", "failed")
 
 
+def run_macro_indicator_schedule(settings: dict[str, str], now_kst: datetime) -> None:
+  should_run, reason = should_run_macro_indicator_now(settings, now_kst)
+  print(f"macro indicator reason={reason}")
+  save_setting("last_macro_indicator_check_reason", reason)
+  if not should_run:
+    return
+
+  save_setting(
+    "last_macro_indicator_run_started_at",
+    now_kst.isoformat(timespec="seconds"),
+  )
+  save_setting("last_macro_indicator_run_status", "running")
+  try:
+    run_command([sys.executable, "batch/update_macro_indicators.py"])
+    save_setting("last_macro_indicator_run_date_kst", now_kst.date().isoformat())
+    save_setting(
+      "last_macro_indicator_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_macro_indicator_run_status", "success")
+  except Exception as error:
+    print(f"[macro indicator schedule failed] {error}", flush=True)
+    save_setting(
+      "last_macro_indicator_run_completed_at",
+      datetime.now(KST).isoformat(timespec="seconds"),
+    )
+    save_setting("last_macro_indicator_run_status", "failed")
+
+
 def main() -> None:
   settings = load_settings()
   now_kst = datetime.now(KST)
@@ -439,6 +502,7 @@ def main() -> None:
   save_setting("last_scheduler_check_reason", reason)
   run_watchlist_price_schedule(settings, now_kst)
   run_teacher_watchlist_price_schedule(settings, now_kst)
+  run_macro_indicator_schedule(settings, now_kst)
   run_metric_price_schedule(settings, now_kst)
 
   if not should_run:

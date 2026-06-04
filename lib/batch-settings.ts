@@ -25,6 +25,8 @@ export interface BatchSettings {
   watchlistPriceTimeKst: string;
   teacherWatchlistPriceEnabled: boolean;
   teacherWatchlistPriceTimeKst: string;
+  macroIndicatorEnabled: boolean;
+  macroIndicatorTimeKst: string;
   telegramEnabled: boolean;
   telegramCollectHoursBack: number;
   telegramMessageLimit: number;
@@ -50,6 +52,11 @@ export interface BatchSchedulerMeta {
   lastTeacherWatchlistPriceRunCompletedAt: string;
   lastTeacherWatchlistPriceRunStatus: string;
   lastTeacherWatchlistPriceCheckReason: string;
+  lastMacroIndicatorRunDateKst: string;
+  lastMacroIndicatorRunStartedAt: string;
+  lastMacroIndicatorRunCompletedAt: string;
+  lastMacroIndicatorRunStatus: string;
+  lastMacroIndicatorCheckReason: string;
   lastMetricPriceRunDateKst: string;
   lastMetricPriceRunStartedAt: string;
   lastMetricPriceRunCompletedAt: string;
@@ -79,6 +86,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   watchlist_price_time_kst: "06:30",
   teacher_watchlist_price_enabled: "true",
   teacher_watchlist_price_time_kst: "06:45",
+  macro_indicator_enabled: "true",
+  macro_indicator_time_kst: "08:00",
   telegram_enabled: "false",
   telegram_collect_hours_back: "2",
   telegram_message_limit: "200",
@@ -103,6 +112,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_teacher_watchlist_price_run_completed_at: "",
   last_teacher_watchlist_price_run_status: "",
   last_teacher_watchlist_price_check_reason: "",
+  last_macro_indicator_run_date_kst: "",
+  last_macro_indicator_run_started_at: "",
+  last_macro_indicator_run_completed_at: "",
+  last_macro_indicator_run_status: "",
+  last_macro_indicator_check_reason: "",
   last_metric_price_run_date_kst: "",
   last_metric_price_run_started_at: "",
   last_metric_price_run_completed_at: "",
@@ -168,6 +182,8 @@ function serializeSettings(settings: BatchSettings): Record<string, string> {
       settings.teacherWatchlistPriceEnabled
     ),
     teacher_watchlist_price_time_kst: settings.teacherWatchlistPriceTimeKst,
+    macro_indicator_enabled: String(settings.macroIndicatorEnabled),
+    macro_indicator_time_kst: settings.macroIndicatorTimeKst,
     telegram_enabled: String(settings.telegramEnabled),
     telegram_collect_hours_back: String(settings.telegramCollectHoursBack),
     telegram_message_limit: String(settings.telegramMessageLimit),
@@ -216,6 +232,8 @@ function parseSettings(values: Record<string, string>): BatchSettings {
       values.teacher_watchlist_price_time_kst,
       "06:45"
     ),
+    macroIndicatorEnabled: parseBoolean(values.macro_indicator_enabled, true),
+    macroIndicatorTimeKst: parseTime(values.macro_indicator_time_kst, "08:00"),
     telegramEnabled: parseBoolean(values.telegram_enabled, false),
     telegramCollectHoursBack: parseInteger(
       values.telegram_collect_hours_back,
@@ -291,6 +309,11 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
        'last_teacher_watchlist_price_run_completed_at',
        'last_teacher_watchlist_price_run_status',
        'last_teacher_watchlist_price_check_reason',
+       'last_macro_indicator_run_date_kst',
+       'last_macro_indicator_run_started_at',
+       'last_macro_indicator_run_completed_at',
+       'last_macro_indicator_run_status',
+       'last_macro_indicator_check_reason',
        'last_metric_price_run_date_kst',
        'last_metric_price_run_started_at',
        'last_metric_price_run_completed_at',
@@ -329,6 +352,13 @@ export async function getBatchSchedulerMeta(): Promise<BatchSchedulerMeta> {
       values.last_teacher_watchlist_price_run_status,
     lastTeacherWatchlistPriceCheckReason:
       values.last_teacher_watchlist_price_check_reason,
+    lastMacroIndicatorRunDateKst: values.last_macro_indicator_run_date_kst,
+    lastMacroIndicatorRunStartedAt:
+      values.last_macro_indicator_run_started_at,
+    lastMacroIndicatorRunCompletedAt:
+      values.last_macro_indicator_run_completed_at,
+    lastMacroIndicatorRunStatus: values.last_macro_indicator_run_status,
+    lastMacroIndicatorCheckReason: values.last_macro_indicator_check_reason,
     lastMetricPriceRunDateKst: values.last_metric_price_run_date_kst,
     lastMetricPriceRunStartedAt: values.last_metric_price_run_started_at,
     lastMetricPriceRunCompletedAt:
@@ -370,6 +400,8 @@ export function normalizeBatchSettings(input: unknown): BatchSettings {
     teacher_watchlist_price_time_kst: String(
       source.teacherWatchlistPriceTimeKst ?? "06:45"
     ),
+    macro_indicator_enabled: String(source.macroIndicatorEnabled ?? "true"),
+    macro_indicator_time_kst: String(source.macroIndicatorTimeKst ?? "08:00"),
     telegram_enabled: String(source.telegramEnabled ?? "false"),
     telegram_collect_hours_back: String(source.telegramCollectHoursBack ?? "2"),
     telegram_message_limit: String(source.telegramMessageLimit ?? "200"),

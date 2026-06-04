@@ -26,6 +26,8 @@ DEFAULT_BATCH_SETTINGS = {
   "watchlist_price_time_kst": "06:30",
   "teacher_watchlist_price_enabled": "true",
   "teacher_watchlist_price_time_kst": "06:45",
+  "macro_indicator_enabled": "true",
+  "macro_indicator_time_kst": "08:00",
   "telegram_enabled": "false",
   "telegram_collect_hours_back": "2",
   "telegram_message_limit": "200",
@@ -50,6 +52,11 @@ DEFAULT_BATCH_SETTINGS = {
   "last_teacher_watchlist_price_run_completed_at": "",
   "last_teacher_watchlist_price_run_status": "",
   "last_teacher_watchlist_price_check_reason": "",
+  "last_macro_indicator_run_date_kst": "",
+  "last_macro_indicator_run_started_at": "",
+  "last_macro_indicator_run_completed_at": "",
+  "last_macro_indicator_run_status": "",
+  "last_macro_indicator_check_reason": "",
   "last_metric_price_run_date_kst": "",
   "last_metric_price_run_started_at": "",
   "last_metric_price_run_completed_at": "",
@@ -252,6 +259,31 @@ def create_batch_settings() -> None:
     )
 
 
+def create_macro_indicators() -> None:
+  execute(
+    """CREATE TABLE IF NOT EXISTS macro_indicators (
+         snapshot_date TEXT NOT NULL,
+         indicator_key TEXT NOT NULL,
+         region        TEXT NOT NULL,
+         label         TEXT NOT NULL,
+         value         REAL,
+         unit          TEXT,
+         display_value TEXT,
+         source        TEXT,
+         status        TEXT NOT NULL DEFAULT 'ok',
+         note          TEXT,
+         created_at    TEXT,
+         PRIMARY KEY(snapshot_date, indicator_key)
+       )"""
+  )
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_macro_indicators_key_date ON macro_indicators(indicator_key, snapshot_date)"
+  )
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_macro_indicators_created ON macro_indicators(created_at)"
+  )
+
+
 def create_teacher_watchlist() -> None:
   execute(
     """CREATE TABLE IF NOT EXISTS teacher_watchlist (
@@ -399,6 +431,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   backfill_company_sectors()
   create_metrics_history()
   create_batch_settings()
+  create_macro_indicators()
   create_teacher_watchlist()
   execute(
     """CREATE TABLE IF NOT EXISTS corp_codes (

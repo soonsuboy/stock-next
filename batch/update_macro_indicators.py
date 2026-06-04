@@ -2,8 +2,10 @@ import argparse
 import csv
 import json
 import math
-from datetime import datetime
-from io import StringIO
+import os
+import re
+from datetime import date, datetime
+from io import BytesIO, StringIO
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -17,6 +19,12 @@ UA = "Mozilla/5.0 (compatible; soonsuboy-stock-next/1.0)"
 KRW_UNIT_EOK = 100_000_000
 FALLBACK_DEPOSIT_KRW = 130_000_000_000_000
 FALLBACK_CREDIT_KRW = 38_000_000_000_000
+ECOS_BASE_URL = "https://ecos.bok.or.kr/api"
+FX_DAILY_BASE_URL = "https://ksureapi.einfomax.co.kr/v2/datafeed/ksure/fxfiledown"
+FX_DAILY_BASE_DATE = date(2026, 6, 4)
+FX_DAILY_BASE_ID = 3657
+FX_VOLUME_SURGE_EOK_USD = 150
+USD_UNIT_EOK = 100_000_000
 
 
 def now_text() -> str:
@@ -75,6 +83,21 @@ def krw_display(value: float | None) -> str:
   return f"{sign}{amount:,.0f}원"
 
 
+def usd_eok_display(value: float | None) -> str:
+  if value is None:
+    return "-"
+  sign = "-" if value < 0 else ""
+  amount = abs(value) / USD_UNIT_EOK
+  return f"{sign}{amount:,.2f}억달러"
+
+
+def percent_display(value: float | None) -> str:
+  if value is None:
+    return "-"
+  sign = "+" if value > 0 else ""
+  return f"{sign}{value:.2f}%"
+
+
 def score_display(value: float | None, classification: str | None = None) -> str:
   if value is None:
     return "-"
@@ -88,6 +111,53 @@ def request_text(url: str, encoding: str | None = None) -> str:
   if encoding:
     response.encoding = encoding
   return response.text
+
+
+def ecos_api_key() -> str:
+  return os.environ.get("BOK_API_KEY") or os.environ.get("ECOS_API_KEY") or "sample"
+
+
+def ecos_source_name() -> str:
+  return "bok_ecos" if ecos_api_key() != "sample" else "bok_ecos_sample"
+
+
+def ecos_search_rows(
+  stat_code: str,
+  cycle: str,
+  start: str,
+  end: str,
+  item_code: str,
+  limit: int = 10,
+) -> list[dict[str, Any]]:
+  key = ecos_api_key()
+  url = (
+    f"{ECOS_BASE_URL}/StatisticSearch/{key}/json/kr/1/{limit}/"
+    f"{stat_code}/{cycle}/{start}/{end}/{item_code}"
+  )
+  response = requests.get(url, headers={"User-Agent": UA}, timeout=20)
+  response.raise_for_status()
+  data = response.json()
+  if "RESULT" in data:
+    result = data["RESULT"]
+    raise RuntimeError(f"ECOS {result.get('CODE')}: {result.get('MESSAGE')}")
+  rows = data.get("StatisticSearch", {}).get("row") or []
+  if not isinstance(rows, list):
+    raise RuntimeError("ECOS response rows missing")
+  return rows
+
+
+def month_text(months_ago: int = 0) -> str:
+  today = datetime.now(KST).date()
+  month_index = today.year * 12 + today.month - 1 - months_ago
+  year = month_index // 12
+  month = month_index % 12 + 1
+  return f"{year:04d}{month:02d}"
+
+
+def monthly_snapshot_date(yyyymm: str) -> str:
+  if len(yyyymm) != 6:
+    return today_text()
+  return f"{yyyymm[:4]}-{yyyymm[4:]}-01"
 
 
 def fetch_usd_krw() -> dict[str, Any]:
@@ -117,6 +187,155 @@ def fetch_usd_krw() -> dict[str, Any]:
     "status": "ok",
     "note": "USDKRW close",
   }
+
+
+def business_days_between(start: date, end: date) -> int:
+  step = 1 if end >= start else -1
+  current = start
+  count = 0
+  while current != end:
+    current = date.fromordinal(current.toordinal() + step)
+    if current.weekday() < 5:
+      count += step
+  return count
+
+
+def estimated_fx_daily_id() -> int:
+  today = datetime.now(KST).date()
+  return FX_DAILY_BASE_ID + business_days_between(FX_DAILY_BASE_DATE, today)
+
+
+def extract_fx_daily_pdf(pdf_bytes: bytes) -> tuple[str | None, float | None]:
+  from pypdf import PdfReader
+
+  reader = PdfReader(BytesIO(pdf_bytes))
+  text = "\n".join(page.extract_text() or "" for page in reader.pages)
+  if not text.strip():
+    return None, None
+
+  date_match = re.search(r"FX\s*M\s*arket\s*Daily\s+(\d{4}-\d{2}-\d{2})", text)
+  volume_match = re.search(
+    r"현물환\s*거래량\s*\(\s*종합\s*\)\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*억달러",
+    text,
+    re.S,
+  )
+  if not volume_match:
+    volume_match = re.search(
+      r"현물환\s*거래량.*?([0-9]+(?:\.[0-9]+)?)\s*억달러",
+      text,
+      re.S,
+    )
+  volume_eok_usd = parse_number(volume_match.group(1)) if volume_match else None
+  return date_match.group(1) if date_match else None, volume_eok_usd
+
+
+def fetch_seoul_fx_usd_volume() -> dict[str, Any]:
+  start_id = int(os.environ.get("KSURE_FX_DAILY_START_ID") or estimated_fx_daily_id() + 5)
+  scan_window = int(os.environ.get("KSURE_FX_DAILY_SCAN_WINDOW") or 45)
+  last_error: Exception | None = None
+
+  with requests.Session() as session:
+    session.headers.update({"User-Agent": UA})
+    for report_id in range(start_id, start_id - scan_window, -1):
+      if report_id <= 0:
+        break
+      try:
+        response = session.get(f"{FX_DAILY_BASE_URL}/{report_id}", timeout=20)
+        response.raise_for_status()
+        if not response.content.startswith(b"%PDF"):
+          continue
+        report_date, volume_eok_usd = extract_fx_daily_pdf(response.content)
+        if not report_date or volume_eok_usd is None:
+          continue
+
+        value = volume_eok_usd * USD_UNIT_EOK
+        status = "surge" if volume_eok_usd >= FX_VOLUME_SURGE_EOK_USD else "ok"
+        return {
+          "snapshot_date": report_date,
+          "indicator_key": "seoul_fx_usd_volume",
+          "region": "KR",
+          "label": "서울외환시장 달러 거래량",
+          "value": value,
+          "unit": "USD",
+          "display_value": usd_eok_display(value),
+          "source": "ksure_einfomax_fx_daily",
+          "status": status,
+          "note": (
+            f"FX Market Daily #{report_id} 전일 현물환 거래량(종합). "
+            f"{FX_VOLUME_SURGE_EOK_USD:.0f}억달러 이상이면 평시 100~130억달러를 크게 상회한 것으로 표시"
+          ),
+        }
+      except Exception as error:
+        last_error = error
+
+  raise RuntimeError(f"FX Market Daily volume not found: {last_error}")
+
+
+def fetch_fx_reserves() -> list[dict[str, Any]]:
+  rows = ecos_search_rows(
+    "732Y001",
+    "M",
+    month_text(9),
+    month_text(0),
+    "99",
+    limit=10,
+  )
+  parsed: list[tuple[str, float]] = []
+  for row in rows:
+    period = str(row.get("TIME") or "")
+    value_thousand_usd = parse_number(row.get("DATA_VALUE"))
+    if len(period) == 6 and value_thousand_usd is not None:
+      parsed.append((period, value_thousand_usd * 1000))
+  parsed.sort(key=lambda item: item[0])
+  if len(parsed) < 2:
+    raise RuntimeError("ECOS foreign reserves rows need at least two months")
+
+  latest_period, latest_value = parsed[-1]
+  previous_period, previous_value = parsed[-2]
+  change_value = latest_value - previous_value
+  change_rate = change_value / previous_value * 100 if previous_value else None
+  snapshot_date = monthly_snapshot_date(latest_period)
+  comparison_note = f"{latest_period[:4]}-{latest_period[4:]} 월말 기준, 전월 {previous_period[:4]}-{previous_period[4:]} 대비"
+  source = ecos_source_name()
+
+  return [
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "fx_reserves_total",
+      "region": "KR",
+      "label": "외환보유액",
+      "value": latest_value,
+      "unit": "USD",
+      "display_value": usd_eok_display(latest_value),
+      "source": source,
+      "status": "ok",
+      "note": f"한국은행 ECOS 732Y001 합계. {comparison_note}",
+    },
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "fx_reserves_mom_change",
+      "region": "KR",
+      "label": "외환보유액 전월대비",
+      "value": change_value,
+      "unit": "USD",
+      "display_value": usd_eok_display(change_value),
+      "source": "derived",
+      "status": "down" if change_value < 0 else "ok",
+      "note": comparison_note,
+    },
+    {
+      "snapshot_date": snapshot_date,
+      "indicator_key": "fx_reserves_mom_rate",
+      "region": "KR",
+      "label": "외환보유액 전월대비율",
+      "value": change_rate,
+      "unit": "PERCENT",
+      "display_value": percent_display(change_rate),
+      "source": "derived",
+      "status": "down" if change_rate is not None and change_rate < 0 else "ok",
+      "note": comparison_note,
+    },
+  ]
 
 
 def fetch_kospi_foreign_net_buy() -> dict[str, Any]:
@@ -364,6 +583,24 @@ def collect() -> list[dict[str, Any]]:
     indicators.append(fetch_usd_krw())
   except Exception as error:
     indicators.append(error_indicator("usd_krw", "GLOBAL", "원/달러 환율", error))
+
+  try:
+    indicators.append(fetch_seoul_fx_usd_volume())
+  except Exception as error:
+    indicators.append(
+      error_indicator("seoul_fx_usd_volume", "KR", "서울외환시장 달러 거래량", error)
+    )
+
+  try:
+    indicators.extend(fetch_fx_reserves())
+  except Exception as error:
+    indicators.extend(
+      [
+        error_indicator("fx_reserves_total", "KR", "외환보유액", error),
+        error_indicator("fx_reserves_mom_change", "KR", "외환보유액 전월대비", error),
+        error_indicator("fx_reserves_mom_rate", "KR", "외환보유액 전월대비율", error),
+      ]
+    )
 
   foreign: dict[str, Any] | None = None
   try:

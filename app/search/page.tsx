@@ -169,12 +169,16 @@ function MacroStatusBadge({ indicator }: { indicator: MacroIndicator }) {
   const isError = indicator.status === "error";
   const isFallback = indicator.status === "fallback";
   const isOverheated = indicator.status === "overheated";
+  const isSurge = indicator.status === "surge";
+  const isDown = indicator.status === "down";
   const tone = isError
     ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
     : isFallback
       ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200"
-      : isOverheated
+      : isOverheated || isSurge
         ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
+        : isDown
+          ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200"
         : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200";
   const label = isError
     ? "수집 실패"
@@ -182,6 +186,10 @@ function MacroStatusBadge({ indicator }: { indicator: MacroIndicator }) {
       ? "대체값"
       : isOverheated
         ? "과열"
+        : isSurge
+          ? "폭증"
+          : isDown
+            ? "감소"
         : "정상";
 
   return (
@@ -223,12 +231,16 @@ function MacroIndicatorPanel({
   updatedAt: string | null;
 }) {
   const byKey = new Map(indicators.map((item) => [item.key, item]));
-  const moneyKeys = [
+  const marketKeys = [
     "usd_krw",
+    "seoul_fx_usd_volume",
     "kospi_foreign_net_buy",
     "investor_deposit_total",
     "credit_loan_total",
     "credit_deposit_ratio",
+    "fx_reserves_total",
+    "fx_reserves_mom_change",
+    "fx_reserves_mom_rate",
   ];
   const fearKeys = ["fear_greed_kr", "fear_greed_us", "fear_greed_btc"];
 
@@ -250,10 +262,14 @@ function MacroIndicatorPanel({
     }
 
     const isRatio = indicator.key === "credit_deposit_ratio";
+    const isFxVolume = indicator.key === "seoul_fx_usd_volume";
     const isFear = indicator.unit === "SCORE";
     const valueTone =
-      isRatio && indicator.status === "overheated"
+      (isRatio && indicator.status === "overheated") ||
+      indicator.status === "surge"
         ? "text-red-700 dark:text-red-200"
+        : indicator.status === "down"
+          ? "text-blue-700 dark:text-blue-200"
         : "text-slate-900 dark:text-white";
 
     return (
@@ -279,6 +295,8 @@ function MacroIndicatorPanel({
         <div className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           {isRatio
             ? "30% 이상이면 신용 과열구간으로 표시합니다."
+            : isFxVolume
+              ? "150억달러 이상이면 평시 거래량을 크게 상회한 것으로 표시합니다."
             : indicator.source
               ? `출처: ${indicator.source}`
               : "출처 미확인"}
@@ -295,7 +313,7 @@ function MacroIndicatorPanel({
             오늘의 거시 지표
           </h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            환율, 외국인 수급, 예탁금·신용융자, 공포탐욕지수를 매일 배치로 갱신합니다.
+            환율, 서울외환시장 거래량, 외환보유액, 외국인 수급, 예탁금·신용융자, 공포탐욕지수를 매일 배치로 갱신합니다.
           </p>
         </div>
         <div className="text-xs text-slate-500">
@@ -319,8 +337,8 @@ function MacroIndicatorPanel({
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {moneyKeys.map(renderTile)}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {marketKeys.map(renderTile)}
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             {fearKeys.map(renderTile)}

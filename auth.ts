@@ -1,8 +1,9 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
+import Kakao from "next-auth/providers/kakao";
 import { db } from "@/lib/db";
 import { ensureAppUsersTable, isAppUserActive } from "@/lib/app-users";
-import { isOAuthProviderConfigured } from "@/lib/oauth";
+import { getOAuthProviderClientConfig } from "@/lib/oauth";
 
 interface AppUserUpsert {
   id: string;
@@ -44,8 +45,14 @@ async function upsertAppUser(user: AppUserUpsert) {
 
 const providers: NextAuthConfig["providers"] = [];
 
-if (isOAuthProviderConfigured("google")) {
-  providers.push(Google);
+const googleConfig = getOAuthProviderClientConfig("google");
+if (googleConfig) {
+  providers.push(Google(googleConfig));
+}
+
+const kakaoConfig = getOAuthProviderClientConfig("kakao");
+if (kakaoConfig) {
+  providers.push(Kakao(kakaoConfig));
 }
 
 const config = {

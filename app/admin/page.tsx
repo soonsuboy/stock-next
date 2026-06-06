@@ -19,7 +19,7 @@ export default async function AdminPage() {
         <p className="mt-4 text-slate-600 dark:text-slate-400">
           Vercel 프로덕션에서는 환경변수{" "}
           <span className="font-mono font-semibold">ADMIN_EMAILS</span>에
-          관리자 Google 이메일을 등록해야 합니다.
+          관리자 이메일을 등록해야 합니다.
         </p>
         {!isAdminConfigured() && (
           <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">

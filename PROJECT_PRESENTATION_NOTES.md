@@ -77,13 +77,14 @@
 | 59 | 종목검색 거시 지표 패널 | 환율, 코스피 외국인 순매수, 투자자 예탁금, 신용거래융자, 예탁금 대비 신용융자 비율, 국내/미국/비트코인 공포탐욕지수를 매일 수집해 종목검색 상단에 표시했다. | 종목을 고르기 전에 시장 유동성, 레버리지 과열 여부, 투자심리를 한눈에 확인할 수 있게 했다. | 약 45분 |
 | 60 | 서울외환시장 거래량과 외환보유액 지표 | `FX Market Daily`의 전일 현물환 거래량과 한국은행 ECOS 외환보유액을 수집하고, 외환보유액 전월대비 변동액·변동율 및 거래량 폭증 배지를 종목검색 거시지표에 추가했다. | 외국인 매도 자금의 환전 압력과 국가 외환 방어 여력을 함께 볼 수 있는 거시 체크포인트를 추가했다. | 약 45분 |
 | 61 | 국내시장 전체 외국인 수급 비율 | 코스피+코스닥 외국인 순매수액과 거래대금을 합산해 국내시장 전체 외국인 순매수, 거래대금 대비 비율, 전일대비 변동폭을 거시지표에 추가했다. | 외국인 수급이 시장 전체 거래대금에서 어느 정도 압력인지, 전일보다 매도·매수 방향이 얼마나 커졌는지 볼 수 있게 했다. | 약 25분 |
+| 62 | 카카오 OAuth 로그인 복구 | Auth.js Kakao provider와 로그인 버튼을 Google 로그인과 같은 구조로 추가하고, OAuth 설정 안내에 Kakao 콜백 URL과 환경변수 상태를 포함했다. | Google뿐 아니라 Kakao 계정으로도 가입·로그인하고 사용자별 관심종목을 분리해서 사용할 수 있게 했다. | 약 25분 |
 
 ## 4. 현재 시스템 구조
 
 | 영역 | 현재 구조 |
 |---|---|
 | 프론트엔드 | Next.js 16 App Router, React 19, Tailwind CSS |
-| 인증 | Auth.js / Google OAuth |
+| 인증 | Auth.js / Google OAuth / Kakao OAuth |
 | DB | Turso, 주요 테이블: `app_users`, `companies`, `user_watchlist`, `teacher_watchlist`, `metrics_history`, `macro_indicators`, `batch_runs`, `telegram_*` |
 | 재무 수집 | 한국: DART/Daum, 미국: SEC companyfacts/Stooq/Yahoo fallback |
 | 배치 실행 | GitHub Actions schedule + workflow_dispatch |

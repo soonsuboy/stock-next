@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import {
   deleteAssetSnapshot,
+  getAssetData,
   isValidYearMonth,
-  listAssetSnapshots,
   parseAssetSnapshotInput,
   upsertAssetSnapshot,
 } from "@/lib/assets";
@@ -13,8 +13,8 @@ export async function GET() {
   if (!user) return unauthorized();
 
   try {
-    const snapshots = await listAssetSnapshots(user.id);
-    return NextResponse.json({ snapshots });
+    const data = await getAssetData(user.id);
+    return NextResponse.json(data);
   } catch (error) {
     console.error("Asset snapshots fetch error:", error);
     return NextResponse.json(
@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
     }
 
     await upsertAssetSnapshot(user.id, snapshot);
-    const snapshots = await listAssetSnapshots(user.id);
+    const data = await getAssetData(user.id);
 
-    return NextResponse.json({ snapshots }, { status: 201 });
+    return NextResponse.json(data, { status: 201 });
   } catch (error) {
     console.error("Asset snapshot save error:", error);
     return NextResponse.json(
@@ -57,18 +57,19 @@ export async function DELETE(request: NextRequest) {
   if (!user) return unauthorized();
 
   try {
+    const personId = request.nextUrl.searchParams.get("personId");
     const yearMonth = request.nextUrl.searchParams.get("yearMonth");
-    if (!isValidYearMonth(yearMonth)) {
+    if (!personId || !isValidYearMonth(yearMonth)) {
       return NextResponse.json(
-        { error: "Invalid yearMonth parameter" },
+        { error: "Invalid personId or yearMonth parameter" },
         { status: 400 }
       );
     }
 
-    await deleteAssetSnapshot(user.id, yearMonth);
-    const snapshots = await listAssetSnapshots(user.id);
+    await deleteAssetSnapshot(user.id, personId, yearMonth);
+    const data = await getAssetData(user.id);
 
-    return NextResponse.json({ snapshots });
+    return NextResponse.json(data);
   } catch (error) {
     console.error("Asset snapshot delete error:", error);
     return NextResponse.json(

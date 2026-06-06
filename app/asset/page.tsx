@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import AssetManagerClient from "@/app/asset/AssetManagerClient";
 import { getCurrentUser } from "@/lib/auth";
-import { listAssetSnapshots } from "@/lib/assets";
+import { getAssetData } from "@/lib/assets";
 
 export default async function AssetPage() {
   const user = await getCurrentUser();
@@ -9,7 +9,7 @@ export default async function AssetPage() {
     redirect("/login?callbackUrl=/asset");
   }
 
-  const snapshots = await listAssetSnapshots(user.id);
+  const assetData = await getAssetData(user.id);
 
-  return <AssetManagerClient initialSnapshots={snapshots} />;
+  return <AssetManagerClient initialData={assetData} />;
 }

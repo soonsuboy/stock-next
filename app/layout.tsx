@@ -68,6 +68,11 @@ export default async function RootLayout({
                 분석
               </Link>
               {session?.user?.id && (
+                <Link href="/asset" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  자산관리
+                </Link>
+              )}
+              {session?.user?.id && (
                 <Link href="/discussions" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                   종목 토론
                 </Link>

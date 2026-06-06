@@ -153,6 +153,7 @@ const config = {
       const isProtectedPage =
         pathname.startsWith("/search") ||
         pathname.startsWith("/watchlist") ||
+        pathname.startsWith("/asset") ||
         pathname.startsWith("/analysis") ||
         pathname.startsWith("/discussions") ||
         pathname.startsWith("/mypage") ||

@@ -5,6 +5,7 @@ export const config = {
     "/login",
     "/search/:path*",
     "/watchlist/:path*",
+    "/asset/:path*",
     "/teacher-watchlist/:path*",
     "/analysis/:path*",
     "/discussions/:path*",

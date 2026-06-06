@@ -1,6 +1,7 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import Kakao from "next-auth/providers/kakao";
+import Naver from "next-auth/providers/naver";
 import { db } from "@/lib/db";
 import { ensureAppUsersTable, isAppUserActive } from "@/lib/app-users";
 import { getOAuthProviderClientConfig } from "@/lib/oauth";
@@ -55,6 +56,11 @@ if (kakaoConfig) {
   providers.push(Kakao(kakaoConfig));
 }
 
+const naverConfig = getOAuthProviderClientConfig("naver");
+if (naverConfig) {
+  providers.push(Naver(naverConfig));
+}
+
 const config = {
   secret:
     process.env.AUTH_SECRET ||
@@ -77,6 +83,12 @@ const config = {
         const providerAccountId = account.providerAccountId;
         const appUserId = `${provider}:${providerAccountId}`;
         const profileData = profile as Record<string, unknown> | undefined;
+        const profileResponse =
+          profileData?.response &&
+          typeof profileData.response === "object" &&
+          !Array.isArray(profileData.response)
+            ? (profileData.response as Record<string, unknown>)
+            : undefined;
 
         token.userId = appUserId;
         token.provider = provider;
@@ -87,13 +99,21 @@ const config = {
             id: appUserId,
             provider,
             providerAccountId,
-            name: stringOrNull(user?.name) ?? stringOrNull(token.name),
-            email: stringOrNull(user?.email) ?? stringOrNull(token.email),
+            name:
+              stringOrNull(user?.name) ??
+              stringOrNull(token.name) ??
+              stringOrNull(profileResponse?.name) ??
+              stringOrNull(profileResponse?.nickname),
+            email:
+              stringOrNull(user?.email) ??
+              stringOrNull(token.email) ??
+              stringOrNull(profileResponse?.email),
             image:
               stringOrNull(user?.image) ??
               stringOrNull(token.picture) ??
               stringOrNull(profileData?.picture) ??
-              stringOrNull(profileData?.profile_image),
+              stringOrNull(profileData?.profile_image) ??
+              stringOrNull(profileResponse?.profile_image),
           });
         } catch (error) {
           console.error("App user upsert failed:", error);

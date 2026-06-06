@@ -17,6 +17,15 @@ export const oauthProviders = [
     secretEnvAliases: ["KAKAO_CLIENT_SECRET"],
     callbackPath: "/api/auth/callback/kakao",
   },
+  {
+    id: "naver",
+    label: "Naver",
+    idEnv: "AUTH_NAVER_ID",
+    secretEnv: "AUTH_NAVER_SECRET",
+    idEnvAliases: ["NAVER_CLIENT_ID"],
+    secretEnvAliases: ["NAVER_CLIENT_SECRET"],
+    callbackPath: "/api/auth/callback/naver",
+  },
 ] as const;
 
 export type OAuthProviderId = (typeof oauthProviders)[number]["id"];

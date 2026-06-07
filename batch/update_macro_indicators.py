@@ -844,18 +844,80 @@ def write_indicators(indicators: list[dict[str, Any]]) -> None:
   )
 
 
+def update_batch_run_started(run_id: str) -> None:
+  execute(
+    """UPDATE batch_runs
+       SET status = 'running',
+           started_at = COALESCE(started_at, ?),
+           completed_at = NULL,
+           processed = 0,
+           succeeded = 0,
+           failed = 0
+       WHERE id = ?""",
+    [now_text(), run_id],
+  )
+
+
+def update_batch_run_success(run_id: str, indicators: list[dict[str, Any]]) -> None:
+  failed = sum(1 for item in indicators if item.get("status") == "error")
+  processed = len(indicators)
+  succeeded = processed - failed
+  status = "success" if failed == 0 else "partial"
+  error_sample = " / ".join(
+    f"{item.get('label')}: {item.get('note')}"
+    for item in indicators
+    if item.get("status") == "error"
+  )[:1000] or None
+  execute(
+    """UPDATE batch_runs
+       SET status = ?,
+           completed_at = ?,
+           processed = ?,
+           succeeded = ?,
+           failed = ?,
+           error_sample = ?
+       WHERE id = ?""",
+    [status, now_text(), processed, succeeded, failed, error_sample, run_id],
+  )
+
+
+def update_batch_run_failed(run_id: str, error: Exception) -> None:
+  execute(
+    """UPDATE batch_runs
+       SET status = 'failed',
+           completed_at = ?,
+           processed = 0,
+           succeeded = 0,
+           failed = 1,
+           error_sample = ?
+       WHERE id = ?""",
+    [now_text(), str(error)[:1000], run_id],
+  )
+
+
 def main() -> None:
   parser = argparse.ArgumentParser()
   parser.add_argument("--dry-run", action="store_true")
+  parser.add_argument("--run-id")
   args = parser.parse_args()
 
-  indicators = collect()
-  if args.dry_run:
-    for item in indicators:
-      print(json.dumps(item, ensure_ascii=False))
-  else:
-    write_indicators(indicators)
-    print(f"Done. macro indicators={len(indicators)}")
+  if args.run_id and not args.dry_run:
+    update_batch_run_started(args.run_id)
+
+  try:
+    indicators = collect()
+    if args.dry_run:
+      for item in indicators:
+        print(json.dumps(item, ensure_ascii=False))
+    else:
+      write_indicators(indicators)
+      if args.run_id:
+        update_batch_run_success(args.run_id, indicators)
+      print(f"Done. macro indicators={len(indicators)}")
+  except Exception as error:
+    if args.run_id and not args.dry_run:
+      update_batch_run_failed(args.run_id, error)
+    raise
 
 
 if __name__ == "__main__":

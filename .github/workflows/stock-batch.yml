@@ -193,7 +193,14 @@ jobs:
             python batch/update_watchlist_prices.py --scope metrics --market "$price_market" "${price_extra[@]}"
           fi
           if [ "$mode" = "macro" ] || [ "$mode" = "all" ]; then
-            python batch/update_macro_indicators.py
+            macro_extra=()
+            if [ -n "$request_id" ]; then
+              macro_extra+=(--run-id "$request_id")
+            fi
+            if [ "$dry_run" = "true" ]; then
+              macro_extra+=(--dry-run)
+            fi
+            python batch/update_macro_indicators.py "${macro_extra[@]}"
           fi
           if [ "$mode" = "telegram_dialogs" ]; then
             telegram_extra=()

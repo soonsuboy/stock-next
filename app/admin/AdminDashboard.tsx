@@ -156,6 +156,7 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
   const [manualCodes, setManualCodes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [priceSubmitting, setPriceSubmitting] = useState(false);
+  const [macroSubmitting, setMacroSubmitting] = useState(false);
   const [indexSubmitting, setIndexSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -750,6 +751,37 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
       setError(err instanceof Error ? err.message : "가격 배치 실행 중 오류 발생");
     } finally {
       setPriceSubmitting(false);
+    }
+  };
+
+  const dispatchMacroBatch = async () => {
+    if (!status) return;
+    setMacroSubmitting(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/trigger-macro-batch", {
+        method: "POST",
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "거시지표 재수집 요청 실패");
+      }
+
+      setMessage(
+        "거시지표 전체 재수집을 요청했습니다. GitHub Actions에서 환율, 외환보유액, 외국인 수급, 예탁금/신용융자, 공포탐욕지수를 다시 수집합니다."
+      );
+      clearClientCachePrefix(ADMIN_STATUS_CACHE_PREFIX);
+      clearClientCache("search:macro-indicators:v1");
+      await refreshStatus("runs");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "거시지표 재수집 요청 중 오류 발생"
+      );
+    } finally {
+      setMacroSubmitting(false);
     }
   };
 
@@ -1951,6 +1983,14 @@ export default function AdminDashboard({ initialStatus }: AdminDashboardProps) {
               className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {priceSubmitting ? "요청 중..." : "DB 적재기업 가격만 갱신"}
+            </button>
+            <button
+              type="button"
+              disabled={macroSubmitting || !status.workflowDispatchConfigured}
+              onClick={dispatchMacroBatch}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {macroSubmitting ? "요청 중..." : "거시지표 전체 재수집"}
             </button>
             <button
               type="button"

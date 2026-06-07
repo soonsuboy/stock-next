@@ -5,6 +5,7 @@ export interface StockBatchDispatchInputs {
     | "us"
     | "watchlist_prices"
     | "metric_prices"
+    | "macro"
     | "telegram_dialogs"
     | "telegram_collect"
     | "telegram_summarize";

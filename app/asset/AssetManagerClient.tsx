@@ -20,6 +20,8 @@ type AssetFormState = {
   cash: string;
 };
 
+type AssetGridEditState = Partial<Record<AssetKey, string>>;
+
 const categories: Array<{
   key: AssetKey;
   label: string;
@@ -95,6 +97,10 @@ function snapshotToForm(snapshot: AssetSnapshot): AssetFormState {
     realEstate: String(snapshot.realEstate),
     cash: String(snapshot.cash),
   };
+}
+
+function snapshotKey(snapshot: Pick<AssetSnapshot, "personId" | "yearMonth">) {
+  return `${snapshot.personId}:${snapshot.yearMonth}`;
 }
 
 function parseAmount(value: string) {
@@ -217,8 +223,8 @@ function PieChart({
     }, []);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">
             그룹 자산 비율
@@ -229,7 +235,7 @@ function PieChart({
               : "선택 그룹의 입력 내역이 없습니다"}
           </p>
         </div>
-        <div className="text-right">
+        <div className="text-left sm:text-right">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             그룹 총자산
           </p>
@@ -239,8 +245,8 @@ function PieChart({
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[230px_1fr] lg:items-center">
-        <div className="relative mx-auto h-56 w-56">
+      <div className="grid gap-6 xl:grid-cols-[230px_1fr] xl:items-center">
+        <div className="relative mx-auto h-60 w-60 max-w-full sm:h-56 sm:w-56">
           <svg viewBox="0 0 220 220" className="h-full w-full">
             <circle
               cx="110"
@@ -338,7 +344,7 @@ function StackedBarChart({ snapshots }: { snapshots: AssetSnapshot[] }) {
   const maxTotal = Math.max(1, ...recentSnapshots.map((snapshot) => snapshot.total));
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">
@@ -370,7 +376,7 @@ function StackedBarChart({ snapshots }: { snapshots: AssetSnapshot[] }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <div className="flex h-80 min-w-[720px] items-end gap-4 border-b border-slate-200 pb-9 dark:border-slate-800">
+          <div className="flex h-72 min-w-[520px] items-end gap-2 border-b border-slate-200 pb-9 dark:border-slate-800 sm:h-80 sm:min-w-[720px] sm:gap-4">
             {recentSnapshots.map((snapshot) => {
               const height = Math.max(14, (snapshot.total / maxTotal) * 230);
 
@@ -380,7 +386,7 @@ function StackedBarChart({ snapshots }: { snapshots: AssetSnapshot[] }) {
                   className="relative flex flex-1 flex-col items-center"
                 >
                   <div
-                    className="flex w-full max-w-16 flex-col-reverse overflow-hidden rounded-t-md bg-slate-100 dark:bg-slate-800"
+                    className="flex w-full max-w-14 flex-col-reverse overflow-hidden rounded-t-md bg-slate-100 dark:bg-slate-800 sm:max-w-16"
                     style={{ height }}
                     title={`${formatMonth(snapshot.yearMonth)} ${formatCurrency(snapshot.total)}`}
                   >
@@ -452,7 +458,11 @@ export default function AssetManagerClient({
     );
     return current ? snapshotToForm(current) : emptyForm(personId);
   });
+  const [gridEdits, setGridEdits] = useState<Record<string, AssetGridEditState>>(
+    {}
+  );
   const [saving, setSaving] = useState(false);
+  const [savingRowKey, setSavingRowKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -529,6 +539,7 @@ export default function AssetManagerClient({
         throw new Error(nextData.error || fallbackMessage);
       }
       applyData(nextData);
+      setGridEdits({});
       return true;
     } catch (requestError) {
       setError(
@@ -668,6 +679,7 @@ export default function AssetManagerClient({
       }
 
       applyData(nextData);
+      setGridEdits({});
       setMessage(
         `${personName(data.people, form.personId)} ${formatMonth(form.yearMonth)} 자산을 저장했습니다.`
       );
@@ -700,6 +712,7 @@ export default function AssetManagerClient({
       }
 
       applyData(nextData);
+      setGridEdits({});
       setForm(emptyForm(form.personId, form.yearMonth));
       setMessage(`${formatMonth(selectedSnapshot.yearMonth)} 자산을 삭제했습니다.`);
     } catch (deleteError) {
@@ -713,21 +726,103 @@ export default function AssetManagerClient({
     }
   };
 
+  const gridValue = (snapshot: AssetSnapshot, key: AssetKey) => {
+    return gridEdits[snapshotKey(snapshot)]?.[key] ?? String(snapshot[key]);
+  };
+
+  const gridTotal = (snapshot: AssetSnapshot) => {
+    return categories.reduce(
+      (sum, category) => sum + (parseAmount(gridValue(snapshot, category.key)) ?? 0),
+      0
+    );
+  };
+
+  const updateGridValue = (
+    snapshot: AssetSnapshot,
+    key: AssetKey,
+    value: string
+  ) => {
+    const rowKey = snapshotKey(snapshot);
+    setGridEdits((current) => ({
+      ...current,
+      [rowKey]: {
+        ...current[rowKey],
+        [key]: value,
+      },
+    }));
+    setMessage("");
+    setError("");
+  };
+
+  const saveGridSnapshot = async (snapshot: AssetSnapshot) => {
+    const rowKey = snapshotKey(snapshot);
+    const values = Object.fromEntries(
+      categories.map((category) => [
+        category.key,
+        parseAmount(gridValue(snapshot, category.key)),
+      ])
+    );
+
+    if (Object.values(values).some((value) => value === null)) {
+      setError("금액은 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+
+    setSavingRowKey(rowKey);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/asset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          personId: snapshot.personId,
+          yearMonth: snapshot.yearMonth,
+          ...values,
+        }),
+      });
+
+      const nextData = (await response.json()) as AssetData & { error?: string };
+      if (!response.ok) {
+        throw new Error(nextData.error || "자산 수정에 실패했습니다.");
+      }
+
+      applyData(nextData);
+      setGridEdits((current) => {
+        const next = { ...current };
+        delete next[rowKey];
+        return next;
+      });
+      setMessage(
+        `${personName(data.people, snapshot.personId)} ${formatMonth(snapshot.yearMonth)} 자산을 수정했습니다.`
+      );
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "자산 수정에 실패했습니다."
+      );
+    } finally {
+      setSavingRowKey(null);
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-8 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-bold text-blue-600 dark:text-blue-300">
             Asset Management
           </p>
-          <h1 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
+          <h1 className="mt-2 text-2xl font-black text-slate-950 dark:text-white sm:text-3xl">
             가구별 월별 자산관리
           </h1>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             사람별 계좌 자산을 입력하고, 그룹 단위로 합산해 흐름을 봅니다.
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-right dark:border-slate-800 dark:bg-slate-900">
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-4 text-left dark:border-slate-800 dark:bg-slate-900 sm:px-5 lg:text-right">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             선택 그룹 최근 총자산
           </p>
@@ -737,8 +832,8 @@ export default function AssetManagerClient({
         </div>
       </div>
 
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-        <label className="block max-w-sm">
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+        <label className="block sm:max-w-sm">
           <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">
             그래프 그룹
           </span>
@@ -756,13 +851,13 @@ export default function AssetManagerClient({
         </label>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
         <div className="space-y-6">
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
               사람 관리
             </h2>
-            <form onSubmit={createPerson} className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+            <form onSubmit={createPerson} className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
               <input
                 type="text"
                 value={newPersonName}
@@ -799,11 +894,11 @@ export default function AssetManagerClient({
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
               그룹 관리
             </h2>
-            <form onSubmit={createGroup} className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+            <form onSubmit={createGroup} className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
               <input
                 type="text"
                 value={newGroupName}
@@ -843,7 +938,7 @@ export default function AssetManagerClient({
                 onChange={(event) => setEditingGroupName(event.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {data.people.map((person) => (
                   <label
                     key={person.id}
@@ -859,7 +954,7 @@ export default function AssetManagerClient({
                   </label>
                 ))}
               </div>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                 <button
                   type="submit"
                   disabled={busy || !editingGroupId}
@@ -881,9 +976,9 @@ export default function AssetManagerClient({
 
           <form
             onSubmit={saveSnapshot}
-            className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+            className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6"
           >
-            <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
                   사람별 월별 입력
@@ -978,7 +1073,7 @@ export default function AssetManagerClient({
               </div>
             )}
 
-            <div className="mt-5 grid grid-cols-[1fr_auto] gap-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
               <button
                 type="submit"
                 disabled={saving}
@@ -1004,7 +1099,7 @@ export default function AssetManagerClient({
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">
             사람별 입력 내역
@@ -1014,8 +1109,8 @@ export default function AssetManagerClient({
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 <th className="py-3 pr-3">월</th>
@@ -1026,13 +1121,14 @@ export default function AssetManagerClient({
                   </th>
                 ))}
                 <th className="py-3 pl-3 text-right">총자산</th>
+                <th className="py-3 pl-3 text-right">수정</th>
               </tr>
             </thead>
             <tbody>
               {data.snapshots.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="py-10 text-center text-sm text-slate-500 dark:text-slate-400"
                   >
                     아직 입력된 자산 기록이 없습니다.
@@ -1042,41 +1138,155 @@ export default function AssetManagerClient({
                 data.snapshots
                   .slice()
                   .reverse()
-                  .map((snapshot) => (
-                    <tr
-                      key={`${snapshot.personId}:${snapshot.yearMonth}`}
-                      className="border-b border-slate-100 last:border-0 dark:border-slate-800"
-                    >
-                      <td className="py-3 pr-3 font-bold text-slate-900 dark:text-white">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            loadSnapshotIntoForm(snapshot.personId, snapshot.yearMonth)
-                          }
-                          className="rounded px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-                        >
-                          {formatMonth(snapshot.yearMonth)}
-                        </button>
-                      </td>
-                      <td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">
-                        {personName(data.people, snapshot.personId)}
-                      </td>
-                      {categories.map((category) => (
-                        <td
-                          key={category.key}
-                          className="px-3 py-3 text-right text-slate-600 dark:text-slate-300"
-                        >
-                          {formatCurrency(snapshot[category.key])}
+                  .map((snapshot) => {
+                    const rowKey = snapshotKey(snapshot);
+                    const isSavingRow = savingRowKey === rowKey;
+
+                    return (
+                      <tr
+                        key={rowKey}
+                        className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                      >
+                        <td className="py-3 pr-3 font-bold text-slate-900 dark:text-white">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              loadSnapshotIntoForm(
+                                snapshot.personId,
+                                snapshot.yearMonth
+                              )
+                            }
+                            className="rounded px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            {formatMonth(snapshot.yearMonth)}
+                          </button>
                         </td>
-                      ))}
-                      <td className="py-3 pl-3 text-right font-black text-slate-950 dark:text-white">
-                        {formatCurrency(snapshot.total)}
-                      </td>
-                    </tr>
-                  ))
+                        <td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">
+                          {personName(data.people, snapshot.personId)}
+                        </td>
+                        {categories.map((category) => (
+                          <td key={category.key} className="px-2 py-3">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={gridValue(snapshot, category.key)}
+                              onChange={(event) =>
+                                updateGridValue(
+                                  snapshot,
+                                  category.key,
+                                  event.target.value
+                                )
+                              }
+                              className="w-full min-w-28 rounded border border-slate-300 bg-white px-2 py-1.5 text-right text-sm text-slate-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                            />
+                          </td>
+                        ))}
+                        <td className="py-3 pl-3 text-right font-black text-slate-950 dark:text-white">
+                          {formatCurrency(gridTotal(snapshot))}
+                        </td>
+                        <td className="py-3 pl-3 text-right">
+                          <button
+                            type="button"
+                            disabled={isSavingRow}
+                            onClick={() => saveGridSnapshot(snapshot)}
+                            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                          >
+                            {isSavingRow ? "저장 중" : "저장"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="space-y-4 md:hidden">
+          {data.snapshots.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              아직 입력된 자산 기록이 없습니다.
+            </div>
+          ) : (
+            data.snapshots
+              .slice()
+              .reverse()
+              .map((snapshot) => {
+                const rowKey = snapshotKey(snapshot);
+                const isSavingRow = savingRowKey === rowKey;
+
+                return (
+                  <article
+                    key={rowKey}
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950"
+                  >
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            loadSnapshotIntoForm(
+                              snapshot.personId,
+                              snapshot.yearMonth
+                            )
+                          }
+                          className="text-base font-black text-slate-950 dark:text-white"
+                        >
+                          {formatMonth(snapshot.yearMonth)}
+                        </button>
+                        <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                          {personName(data.people, snapshot.personId)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                          합계
+                        </p>
+                        <p className="text-sm font-black text-slate-950 dark:text-white">
+                          {formatCurrency(gridTotal(snapshot))}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      {categories.map((category) => (
+                        <label key={category.key} className="block">
+                          <span className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            {category.label}
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={gridValue(snapshot, category.key)}
+                            onChange={(event) =>
+                              updateGridValue(
+                                snapshot,
+                                category.key,
+                                event.target.value
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-right text-sm text-slate-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSavingRow}
+                      onClick={() => saveGridSnapshot(snapshot)}
+                      className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {isSavingRow ? "저장 중" : "수정 저장"}
+                    </button>
+                  </article>
+                );
+              })
+          )}
         </div>
       </div>
     </div>

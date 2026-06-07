@@ -187,6 +187,34 @@ function PieChart({
     ...category,
     value: snapshot ? snapshot[category.key] : 0,
   }));
+  const pieLabels = values
+    .filter((item) => total > 0 && item.value > 0)
+    .reduce<
+      Array<
+        (typeof values)[number] & {
+          share: number;
+          x: number;
+          y: number;
+        }
+      >
+    >((labels, item) => {
+      const previousAngle = labels.reduce(
+        (sum, label) => sum + label.share * 360,
+        0
+      );
+      const share = item.value / total;
+      const angle = previousAngle + share * 180 - 90;
+      const radians = (angle * Math.PI) / 180;
+      const labelRadius = share >= 0.08 ? 78 : 106;
+
+      labels.push({
+        ...item,
+        share,
+        x: 110 + Math.cos(radians) * labelRadius,
+        y: 110 + Math.sin(radians) * labelRadius,
+      });
+      return labels;
+    }, []);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -213,7 +241,7 @@ function PieChart({
 
       <div className="grid gap-6 lg:grid-cols-[230px_1fr] lg:items-center">
         <div className="relative mx-auto h-56 w-56">
-          <svg viewBox="0 0 220 220" className="h-full w-full -rotate-90">
+          <svg viewBox="0 0 220 220" className="h-full w-full">
             <circle
               cx="110"
               cy="110"
@@ -240,9 +268,31 @@ function PieChart({
                     strokeWidth="34"
                     strokeDasharray={strokeDasharray}
                     strokeDashoffset={strokeDashoffset}
+                    transform="rotate(-90 110 110)"
                   />
                 );
               })}
+            {pieLabels.map((item) => (
+              <text
+                key={`${item.key}-label`}
+                x={item.x}
+                y={item.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="select-none fill-white text-[10px] font-black"
+                paintOrder="stroke"
+                stroke="rgba(15, 23, 42, 0.55)"
+                strokeWidth="3"
+                strokeLinejoin="round"
+              >
+                <tspan x={item.x} dy="-0.45em">
+                  {item.label}
+                </tspan>
+                <tspan x={item.x} dy="1.15em">
+                  {formatPercent(item.value, total)}
+                </tspan>
+              </text>
+            ))}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -340,15 +390,24 @@ function StackedBarChart({ snapshots }: { snapshots: AssetSnapshot[] }) {
                         snapshot.total > 0
                           ? Math.max(value > 0 ? 2 : 0, (value / snapshot.total) * height)
                           : 0;
+                      const showSegmentLabel = segmentHeight >= 22;
 
                       return (
                         <div
                           key={category.key}
+                          className="flex items-center justify-center px-1 text-center"
                           style={{
                             height: segmentHeight,
                             backgroundColor: category.color,
                           }}
-                        />
+                          title={`${category.label} ${formatCurrency(value)} (${formatPercent(value, snapshot.total)})`}
+                        >
+                          {showSegmentLabel && (
+                            <span className="truncate text-[10px] font-black leading-none text-white drop-shadow">
+                              {category.label}
+                            </span>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

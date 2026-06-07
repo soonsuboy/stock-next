@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, unauthorized } from "@/lib/auth";
+import { requireAdminApi } from "@/lib/admin";
 import {
   createAssetPerson,
   deleteAssetPerson,
@@ -7,8 +7,8 @@ import {
 } from "@/lib/assets";
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return unauthorized();
+  const { user, response } = await requireAdminApi();
+  if (response) return response;
 
   try {
     const payload = (await request.json()) as Record<string, unknown>;
@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return unauthorized();
+  const { user, response } = await requireAdminApi();
+  if (response) return response;
 
   try {
     const personId = request.nextUrl.searchParams.get("id");

@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import AssetManagerClient from "@/app/asset/AssetManagerClient";
-import { getCurrentUser } from "@/lib/auth";
+import { getAdminUser } from "@/lib/admin";
 import { getAssetData } from "@/lib/assets";
 
 export default async function AssetPage() {
-  const user = await getCurrentUser();
+  const user = await getAdminUser();
   if (!user) {
-    redirect("/login?callbackUrl=/asset");
+    redirect("/watchlist");
   }
 
   const assetData = await getAssetData(user.id);

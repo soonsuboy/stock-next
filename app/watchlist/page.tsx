@@ -211,6 +211,7 @@ export default function WatchlistPage() {
   const [sectorSavingId, setSectorSavingId] = useState<number | null>(null);
   const [sortKey, setSortKey] = useState<WatchlistSortKey>("added_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const applyWatchlistData = (data: WatchlistResponse) => {
     setStocks(data.stocks || []);
@@ -251,6 +252,31 @@ export default function WatchlistPage() {
       void fetchWatchlist();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchAdminStatus() {
+      try {
+        const response = await fetch("/api/me/admin");
+        if (!response.ok) return;
+        const data = (await response.json()) as { isAdmin?: boolean };
+        if (!cancelled) {
+          setIsAdmin(data.isAdmin === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setIsAdmin(false);
+        }
+      }
+    }
+
+    void fetchAdminStatus();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleRemoveStock = async (id: number, name: string) => {
@@ -496,30 +522,40 @@ export default function WatchlistPage() {
             재무제표는 주기 배치가 저장한 값을, 가격과 시가총액은 관심종목 일일 가격 배치가 갱신한 최신 값을 표시합니다.
           </p>
         </div>
-        {stocks.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
+          {isAdmin && (
             <Link
-              href="/search"
-              className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700"
+              href="/asset"
+              className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-700"
             >
-              종목 추가
+              자산관리
             </Link>
-            <Link
-              href="/analysis"
-              className="rounded-lg bg-purple-600 px-4 py-2 font-semibold text-white transition hover:bg-purple-700"
-            >
-              분석 보기
-            </Link>
-            <button
-              type="button"
-              onClick={handleReaggregateWatchlist}
-              disabled={reaggregating}
-              className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
-            >
-              {reaggregating ? "재집계 요청 중..." : "재무제표 재집계"}
-            </button>
-          </div>
-        )}
+          )}
+          <Link
+            href="/search"
+            className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700"
+          >
+            종목 추가
+          </Link>
+          {stocks.length > 0 && (
+            <>
+              <Link
+                href="/analysis"
+                className="rounded-lg bg-purple-600 px-4 py-2 font-semibold text-white transition hover:bg-purple-700"
+              >
+                분석 보기
+              </Link>
+              <button
+                type="button"
+                onClick={handleReaggregateWatchlist}
+                disabled={reaggregating}
+                className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
+              >
+                {reaggregating ? "재집계 요청 중..." : "재무제표 재집계"}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {error && (

@@ -53,14 +53,24 @@ interface MacroIndicator {
   createdAt: string | null;
 }
 
+interface MacroHistoryPoint {
+  key: string;
+  label: string;
+  value: number | null;
+  displayValue: string;
+  status: string;
+  snapshotDate: string;
+}
+
 interface MacroResponse {
   indicators: MacroIndicator[];
+  history: MacroHistoryPoint[];
   updatedAt: string | null;
 }
 
 const PAGE_SIZE = 30;
 const RANKED_CACHE_TTL_MS = 5 * 60 * 1000;
-const MACRO_CACHE_KEY = "search:macro-indicators:v1";
+const MACRO_CACHE_KEY = "search:macro-indicators:v2";
 const MACRO_CACHE_TTL_MS = 30 * 60 * 1000;
 const WATCHLIST_CACHE_KEY = "watchlist:v1";
 const ANALYSIS_CACHE_KEY = "analysis:v2";
@@ -225,98 +235,273 @@ function FearGreedBar({ value }: { value: number | null }) {
   );
 }
 
+function sparklineColor(indicator: MacroIndicator | undefined) {
+  if (!indicator) return "#64748b";
+  if (
+    indicator.status === "surge" ||
+    indicator.status === "overheated" ||
+    indicator.status === "net_buy"
+  ) {
+    return "#dc2626";
+  }
+  if (indicator.status === "down" || indicator.status === "net_sell") {
+    return "#2563eb";
+  }
+  if (indicator.unit === "SCORE") return "#d97706";
+  return "#0f766e";
+}
+
+function Sparkline({
+  points,
+  color,
+}: {
+  points: MacroHistoryPoint[];
+  color: string;
+}) {
+  const numericPoints = points
+    .filter((point) => typeof point.value === "number")
+    .slice(-30);
+
+  if (numericPoints.length < 2) {
+    return (
+      <div className="flex h-9 w-24 items-center justify-center rounded bg-slate-100 text-[10px] text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+        이력 부족
+      </div>
+    );
+  }
+
+  const width = 96;
+  const height = 34;
+  const padding = 3;
+  const values = numericPoints.map((point) => point.value as number);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const coordinates = values.map((value, index) => {
+    const x =
+      numericPoints.length === 1
+        ? width / 2
+        : padding +
+          (index / (numericPoints.length - 1)) * (width - padding * 2);
+    const y =
+      height -
+      padding -
+      ((value - min) / range) * (height - padding * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-9 w-24 overflow-visible"
+      viewBox={`0 0 ${width} ${height}`}
+    >
+      <line
+        x1={padding}
+        y1={height - padding}
+        x2={width - padding}
+        y2={height - padding}
+        stroke="currentColor"
+        className="text-slate-200 dark:text-slate-800"
+        strokeWidth="1"
+      />
+      <polyline
+        points={coordinates.join(" ")}
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function valueTone(indicator: MacroIndicator | undefined) {
+  if (!indicator) return "text-slate-400";
+  if (
+    indicator.status === "surge" ||
+    indicator.status === "overheated" ||
+    indicator.status === "net_buy"
+  ) {
+    return "text-red-700 dark:text-red-200";
+  }
+  if (indicator.status === "down" || indicator.status === "net_sell") {
+    return "text-blue-700 dark:text-blue-200";
+  }
+  return "text-slate-900 dark:text-white";
+}
+
+function MacroMetricLine({
+  indicator,
+  history,
+  label,
+  description,
+}: {
+  indicator: MacroIndicator | undefined;
+  history: MacroHistoryPoint[];
+  label?: string;
+  description?: string;
+}) {
+  return (
+    <div className="border-t border-slate-100 py-3 first:border-t-0 first:pt-0 last:pb-0 dark:border-slate-800">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+              {label || indicator?.label || "수집 전"}
+            </span>
+            {indicator && <MacroStatusBadge indicator={indicator} />}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            기준 {formatDate(indicator?.snapshotDate)}
+          </div>
+          {description && (
+            <div className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              {description}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          <div className={`text-base font-bold ${valueTone(indicator)}`}>
+            {indicator?.displayValue || "-"}
+          </div>
+          <div className="mt-1 flex justify-end">
+            <Sparkline points={history} color={sparklineColor(indicator)} />
+          </div>
+        </div>
+      </div>
+      {indicator?.unit === "SCORE" && <FearGreedBar value={indicator.value} />}
+    </div>
+  );
+}
+
+function MacroGroupCard({
+  title,
+  description,
+  rows,
+  byKey,
+  historyByKey,
+}: {
+  title: string;
+  description: string;
+  rows: Array<{ key: string; label?: string; description?: string }>;
+  byKey: Map<string, MacroIndicator>;
+  historyByKey: Map<string, MacroHistoryPoint[]>;
+}) {
+  const primary = byKey.get(rows[0]?.key || "");
+
+  return (
+    <div className="border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            {title}
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            {description}
+          </p>
+        </div>
+        {primary && <MacroStatusBadge indicator={primary} />}
+      </div>
+      <div>
+        {rows.map((row) => (
+          <MacroMetricLine
+            key={row.key}
+            indicator={byKey.get(row.key)}
+            history={historyByKey.get(row.key) || []}
+            label={row.label}
+            description={row.description}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MacroIndicatorPanel({
   indicators,
+  history,
   loading,
   error,
   updatedAt,
 }: {
   indicators: MacroIndicator[];
+  history: MacroHistoryPoint[];
   loading: boolean;
   error: string;
   updatedAt: string | null;
 }) {
   const byKey = new Map(indicators.map((item) => [item.key, item]));
-  const marketKeys = [
-    "usd_krw",
-    "seoul_fx_usd_volume",
-    "kr_market_foreign_net_buy",
-    "kr_market_foreign_net_buy_ratio",
-    "kr_market_foreign_net_buy_change",
-    "investor_deposit_total",
-    "credit_loan_total",
-    "credit_deposit_ratio",
-    "fx_reserves_total",
-    "fx_reserves_mom_change",
-    "fx_reserves_mom_rate",
+  const historyByKey = new Map<string, MacroHistoryPoint[]>();
+  for (const point of history) {
+    const current = historyByKey.get(point.key) || [];
+    current.push(point);
+    historyByKey.set(point.key, current);
+  }
+
+  const groups = [
+    {
+      title: "환율과 외환시장",
+      description: "원/달러 환율과 서울외환시장 달러 거래량을 함께 봅니다.",
+      rows: [
+        { key: "usd_krw", label: "원/달러 환율" },
+        {
+          key: "seoul_fx_usd_volume",
+          label: "서울외환시장 달러 거래량",
+          description: "150억달러 이상이면 평시 거래량을 크게 상회한 것으로 표시합니다.",
+        },
+      ],
+    },
+    {
+      title: "외국인 수급",
+      description: "국내시장 전체 기준 외국인 매매 압력과 전일대비 변화를 봅니다.",
+      rows: [
+        { key: "kr_market_foreign_net_buy", label: "순매수 금액" },
+        {
+          key: "kr_market_foreign_net_buy_ratio",
+          label: "거래대금 대비 비율",
+          description: "코스피+코스닥 거래대금 대비 외국인 순매수액 비율입니다.",
+        },
+        {
+          key: "kr_market_foreign_net_buy_change",
+          label: "전일대비 변동폭",
+          description: "직전 거래일 대비 외국인 순매수액의 변화입니다.",
+        },
+      ],
+    },
+    {
+      title: "예탁금과 신용융자",
+      description: "시장 대기자금과 레버리지 과열 여부를 같이 확인합니다.",
+      rows: [
+        { key: "investor_deposit_total", label: "투자자 총 예탁금" },
+        { key: "credit_loan_total", label: "신용거래융자 총액" },
+        {
+          key: "credit_deposit_ratio",
+          label: "신용융자/예탁금 비율",
+          description: "30% 이상이면 신용 과열구간으로 표시합니다.",
+        },
+      ],
+    },
+    {
+      title: "외환보유액",
+      description: "외환 방어 여력과 전월대비 증감 방향을 함께 봅니다.",
+      rows: [
+        { key: "fx_reserves_total", label: "외환보유액" },
+        { key: "fx_reserves_mom_change", label: "전월대비 변동액" },
+        { key: "fx_reserves_mom_rate", label: "전월대비율" },
+      ],
+    },
+    {
+      title: "공포탐욕지수",
+      description: "국내, 미국, 비트코인 투자심리를 같은 스케일로 비교합니다.",
+      rows: [
+        { key: "fear_greed_kr", label: "국내" },
+        { key: "fear_greed_us", label: "미국" },
+        { key: "fear_greed_btc", label: "비트코인" },
+      ],
+    },
   ];
-  const fearKeys = ["fear_greed_kr", "fear_greed_us", "fear_greed_btc"];
-
-  const renderTile = (key: string) => {
-    const indicator = byKey.get(key);
-    if (!indicator) {
-      return (
-        <div
-          key={key}
-          className="border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
-        >
-          <div className="text-sm font-bold text-slate-900 dark:text-white">
-            {key}
-          </div>
-          <div className="mt-3 text-xl font-bold text-slate-400">-</div>
-          <div className="mt-2 text-xs text-slate-500">수집 전</div>
-        </div>
-      );
-    }
-
-    const isRatio = indicator.key === "credit_deposit_ratio";
-    const isFxVolume = indicator.key === "seoul_fx_usd_volume";
-    const isFear = indicator.unit === "SCORE";
-    const valueTone =
-      (isRatio && indicator.status === "overheated") ||
-      indicator.status === "surge" ||
-      indicator.status === "net_buy"
-        ? "text-red-700 dark:text-red-200"
-        : indicator.status === "down" || indicator.status === "net_sell"
-          ? "text-blue-700 dark:text-blue-200"
-        : "text-slate-900 dark:text-white";
-
-    return (
-      <div
-        key={indicator.key}
-        className="border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-sm font-bold text-slate-900 dark:text-white">
-              {indicator.label}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              기준 {formatDate(indicator.snapshotDate)}
-            </div>
-          </div>
-          <MacroStatusBadge indicator={indicator} />
-        </div>
-        <div className={`mt-3 text-2xl font-bold ${valueTone}`}>
-          {indicator.displayValue}
-        </div>
-        {isFear && <FearGreedBar value={indicator.value} />}
-        <div className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {isRatio
-            ? "30% 이상이면 신용 과열구간으로 표시합니다."
-            : isFxVolume
-              ? "150억달러 이상이면 평시 거래량을 크게 상회한 것으로 표시합니다."
-            : indicator.key === "kr_market_foreign_net_buy_ratio"
-              ? "코스피+코스닥 거래대금 대비 외국인 순매수액 비율입니다."
-            : indicator.key === "kr_market_foreign_net_buy_change"
-              ? "전 거래일 대비 외국인 순매수액의 변화입니다."
-            : indicator.source
-              ? `출처: ${indicator.source}`
-              : "출처 미확인"}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <section className="mb-8 border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -350,14 +535,20 @@ function MacroIndicatorPanel({
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {marketKeys.map(renderTile)}
-          </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            {fearKeys.map(renderTile)}
+          <div className="grid gap-3 xl:grid-cols-2">
+            {groups.map((group) => (
+              <MacroGroupCard
+                key={group.title}
+                title={group.title}
+                description={group.description}
+                rows={group.rows}
+                byKey={byKey}
+                historyByKey={historyByKey}
+              />
+            ))}
           </div>
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            국내 공포탐욕지수는 공식 지수가 아니라 앱 자체 산출값입니다. 신용융자/예탁금 비율과 코스피 외국인 순매수를 함께 반영합니다.
+            미니그래프는 최근 180일 내 수집된 값 중 최근 30개를 표시합니다. 국내 공포탐욕지수는 공식 지수가 아니라 앱 자체 산출값입니다.
           </p>
         </>
       )}
@@ -386,6 +577,7 @@ export default function SearchPage() {
   const [rankLoading, setRankLoading] = useState(true);
   const [rankError, setRankError] = useState("");
   const [macroIndicators, setMacroIndicators] = useState<MacroIndicator[]>([]);
+  const [macroHistory, setMacroHistory] = useState<MacroHistoryPoint[]>([]);
   const [macroUpdatedAt, setMacroUpdatedAt] = useState<string | null>(null);
   const [macroLoading, setMacroLoading] = useState(true);
   const [macroError, setMacroError] = useState("");
@@ -395,6 +587,7 @@ export default function SearchPage() {
 
     if (cached) {
       setMacroIndicators(cached.indicators || []);
+      setMacroHistory(cached.history || []);
       setMacroUpdatedAt(cached.updatedAt || null);
       setMacroLoading(false);
     } else {
@@ -414,10 +607,12 @@ export default function SearchPage() {
 
       const next = {
         indicators: data.indicators || [],
+        history: data.history || [],
         updatedAt: data.updatedAt || null,
       };
       writeClientCache(MACRO_CACHE_KEY, next, MACRO_CACHE_TTL_MS);
       setMacroIndicators(next.indicators);
+      setMacroHistory(next.history);
       setMacroUpdatedAt(next.updatedAt);
     } catch (err) {
       if (!cached) {
@@ -859,6 +1054,7 @@ export default function SearchPage() {
 
       <MacroIndicatorPanel
         indicators={macroIndicators}
+        history={macroHistory}
         loading={macroLoading}
         error={macroError}
         updatedAt={macroUpdatedAt}

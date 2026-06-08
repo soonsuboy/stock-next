@@ -16,6 +16,15 @@ export interface MacroIndicator {
   createdAt: string | null;
 }
 
+export interface MacroIndicatorHistoryPoint {
+  key: string;
+  label: string;
+  value: number | null;
+  displayValue: string;
+  status: string;
+  snapshotDate: string;
+}
+
 async function ensureMacroIndicators() {
   await db.execute(
     `CREATE TABLE IF NOT EXISTS macro_indicators (
@@ -64,6 +73,19 @@ export async function GET() {
          ON l.indicator_key = m.indicator_key
         AND l.created_at = m.created_at`
     );
+    const historyResult = await db.execute(
+      `SELECT
+         indicator_key,
+         label,
+         value,
+         display_value,
+         status,
+         snapshot_date
+       FROM macro_indicators
+       WHERE value IS NOT NULL
+         AND snapshot_date >= date('now', '-180 day')
+       ORDER BY indicator_key ASC, snapshot_date ASC, created_at ASC`
+    );
 
     const indicators: MacroIndicator[] = result.rows.map((row) => ({
       key: String(row.indicator_key),
@@ -79,9 +101,21 @@ export async function GET() {
       snapshotDate: String(row.snapshot_date),
       createdAt: typeof row.created_at === "string" ? row.created_at : null,
     }));
+    const history: MacroIndicatorHistoryPoint[] = historyResult.rows.map(
+      (row) => ({
+        key: String(row.indicator_key),
+        label: String(row.label),
+        value: typeof row.value === "number" ? row.value : null,
+        displayValue:
+          typeof row.display_value === "string" ? row.display_value : "-",
+        status: typeof row.status === "string" ? row.status : "ok",
+        snapshotDate: String(row.snapshot_date),
+      })
+    );
 
     return NextResponse.json({
       indicators,
+      history,
       updatedAt:
         indicators
           .map((item) => item.createdAt)

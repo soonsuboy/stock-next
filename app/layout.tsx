@@ -72,6 +72,11 @@ export default async function RootLayout({
                   종목 토론
                 </Link>
               )}
+              {session?.user?.id && (
+                <Link href="/misc" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  기타
+                </Link>
+              )}
               {isAdmin && (
                 <Link href="/admin" className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
                   관리자

@@ -9,6 +9,7 @@ export const config = {
     "/teacher-watchlist/:path*",
     "/analysis/:path*",
     "/discussions/:path*",
+    "/misc/:path*",
     "/mypage/:path*",
     "/admin/:path*",
   ],

@@ -362,6 +362,29 @@ def create_teacher_watchlist() -> None:
     )
 
 
+def create_misc_files() -> None:
+  execute(
+    """CREATE TABLE IF NOT EXISTS misc_files (
+         id            TEXT PRIMARY KEY,
+         user_id       TEXT NOT NULL,
+         original_name TEXT NOT NULL,
+         pathname      TEXT NOT NULL UNIQUE,
+         blob_url      TEXT,
+         download_url  TEXT,
+         content_type  TEXT,
+         size_bytes    INTEGER NOT NULL DEFAULT 0,
+         status        TEXT NOT NULL DEFAULT 'pending',
+         created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         uploaded_at   TEXT,
+         updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         FOREIGN KEY(user_id) REFERENCES app_users(id)
+       )"""
+  )
+  execute(
+    "CREATE INDEX IF NOT EXISTS idx_misc_files_user_status ON misc_files(user_id, status, uploaded_at)"
+  )
+
+
 def backfill_company_sectors() -> None:
   result = execute(
     """SELECT code, country, name, market, industry_name
@@ -433,6 +456,7 @@ def migrate(clear_legacy_watchlist: bool) -> None:
   create_batch_settings()
   create_macro_indicators()
   create_teacher_watchlist()
+  create_misc_files()
   execute(
     """CREATE TABLE IF NOT EXISTS corp_codes (
          stock_code TEXT PRIMARY KEY,

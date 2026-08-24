@@ -156,6 +156,7 @@ const config = {
         pathname.startsWith("/asset") ||
         pathname.startsWith("/analysis") ||
         pathname.startsWith("/discussions") ||
+        pathname.startsWith("/misc") ||
         pathname.startsWith("/mypage") ||
         pathname.startsWith("/admin");
 

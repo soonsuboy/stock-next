@@ -81,6 +81,7 @@
 | 63 | 소셜 로그인 로고 버튼 | 로그인 버튼에 Google/Kakao/Naver 로고와 브랜드 색상을 적용하고, Naver OAuth provider를 optional로 추가했다. | 로그인 화면의 신뢰감과 사용성을 높이고, 향후 네이버 로그인 키만 추가하면 같은 구조로 바로 사용할 수 있게 했다. | 약 20분 |
 | 64 | 관리자 거시지표 전체 재수집 | 관리자 수동배치 탭에 거시지표 전체 재수집 버튼과 전용 API를 추가하고, GitHub Actions `macro` 모드가 실행 로그를 `batch_runs`에 갱신하게 했다. | 환율·외환보유액·외국인 수급·예탁금/신용융자·공포탐욕지수를 필요할 때 한 번에 최신화하고 실행 결과를 관리자에서 확인할 수 있게 했다. | 약 25분 |
 | 65 | 거시지표 그룹 카드와 미니그래프 | 외국인 수급, 예탁금/신용융자, 외환보유액 등 함께 봐야 하는 지표를 한 카드로 묶고, 최근 수집 이력을 SVG 미니그래프로 표시했다. | 거시지표를 단일 숫자 나열이 아니라 해석 단위와 방향성 추세로 읽을 수 있게 했다. | 약 35분 |
+| 66 | 기타 메뉴 첨부파일 업로드/다운로드 | 상단 `종목 토론` 옆에 `기타` 메뉴를 추가하고, Vercel Blob client upload 기반의 사용자별 첨부파일 업로드/다운로드 화면과 API를 구현했다. | Vercel Function의 4.5MB 본문 제한을 피하면서 50MB 파일을 다룰 수 있는 파일함 기능을 추가했다. | 약 30분 |
 
 ## 4. 현재 시스템 구조
 
@@ -89,6 +90,7 @@
 | 프론트엔드 | Next.js 16 App Router, React 19, Tailwind CSS |
 | 인증 | Auth.js / Google OAuth / Kakao OAuth / Naver OAuth optional |
 | DB | Turso, 주요 테이블: `app_users`, `companies`, `user_watchlist`, `teacher_watchlist`, `metrics_history`, `macro_indicators`, `batch_runs`, `telegram_*` |
+| 파일 저장 | Vercel Blob client upload, Turso `misc_files` 메타데이터, 사용자별 첨부파일 목록 |
 | 재무 수집 | 한국: DART/Daum, 미국: SEC companyfacts/Stooq/Yahoo fallback |
 | 배치 실행 | GitHub Actions schedule + workflow_dispatch |
 | 가격 갱신 | 관심종목, 담쌤관심종목, 전체 집계기업 대상 가격 배치, 전일 종가와 전일대비 등락률 계산 |
